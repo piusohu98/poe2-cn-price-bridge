@@ -64,13 +64,19 @@ version: $version
 build_time: $buildTime
 
 start_here: StartHere.bat
+start_here_zh: 开始使用.bat
 control_center: ControlCenter.bat
-start: Start.bat 或 QingPricePOE2.exe
+start: Start.bat / 启动查价.bat / QingPricePOE2.exe
 first_run: FirstRun.bat
+first_run_zh: 首次向导.bat
 settings: Settings.bat
+settings_zh: 常用设置.bat
+cookie_zh: 设置Cookie.bat
+history_zh: 查询历史.bat
 self_check: SelfCheck.bat
 diagnostics: Diagnostics.bat
 support_bundle: SupportBundle.bat
+support_bundle_zh: 生成支持包.bat
 reset_data: ResetData.bat
 uninstall: Uninstall.bat
 
@@ -163,6 +169,54 @@ Set-Content -LiteralPath (Join-Path $packageDir 'History.bat') -Encoding ASCII -
 @echo off
 cd /d "%~dp0"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0history_gui.ps1" -Root "%~dp0"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '开始使用.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0StartHere.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '启动查价.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0Start.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '首次向导.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0FirstRun.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '设置Cookie.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0SetCookie.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '常用设置.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0Settings.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '查询历史.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0History.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '运行自检.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0SelfCheck.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '生成支持包.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0SupportBundle.bat"
 '@
 
 Set-Content -LiteralPath (Join-Path $packageDir 'InstallShortcut.ps1') -Encoding UTF8 -Value @'

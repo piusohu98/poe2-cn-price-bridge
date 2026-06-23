@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string] $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [switch] $RunLaunchSmoke
 )
@@ -38,16 +38,24 @@ Assert-Ok (Test-Path -LiteralPath $exePath) "exe exists"
 $requiredFiles = @(
     'QingPricePOE2.exe',
     'StartHere.bat',
+    '开始使用.bat',
     'ControlCenter.bat',
     'Start.bat',
+    '启动查价.bat',
     'FirstRun.bat',
+    '首次向导.bat',
     'SetCookie.bat',
+    '设置Cookie.bat',
     'ValidateCookie.bat',
     'Settings.bat',
+    '常用设置.bat',
     'History.bat',
+    '查询历史.bat',
     'SelfCheck.bat',
+    '运行自检.bat',
     'Diagnostics.bat',
     'SupportBundle.bat',
+    '生成支持包.bat',
     'SupportBundle.ps1',
     'ResetData.bat',
     'ResetData.ps1',
@@ -95,9 +103,13 @@ Assert-Ok ($actualHash -eq $expectedHash) "sha256 matches zip"
 $versionText = Get-Content -LiteralPath (Join-Path $packageDir 'VERSION.txt') -Raw
 Assert-Ok ($versionText -match "version:\s*$([regex]::Escape($version))") "VERSION.txt has package version"
 Assert-Ok ($versionText -match 'start_here:\s*StartHere\.bat') "VERSION.txt lists start here"
+Assert-Ok ($versionText -match 'start_here_zh:\s*开始使用\.bat') "VERSION.txt lists Chinese start here"
 Assert-Ok ($versionText -match 'control_center:\s*ControlCenter\.bat') "VERSION.txt lists control center"
+Assert-Ok ($versionText -match 'cookie_zh:\s*设置Cookie\.bat') "VERSION.txt lists Chinese cookie setup"
+Assert-Ok ($versionText -match 'history_zh:\s*查询历史\.bat') "VERSION.txt lists Chinese history"
 Assert-Ok ($versionText -match 'self_check:\s*SelfCheck\.bat') "VERSION.txt lists self-check"
 Assert-Ok ($versionText -match 'support_bundle:\s*SupportBundle\.bat') "VERSION.txt lists support bundle"
+Assert-Ok ($versionText -match 'support_bundle_zh:\s*生成支持包\.bat') "VERSION.txt lists Chinese support bundle"
 Assert-Ok ($versionText -match 'reset_data:\s*ResetData\.bat') "VERSION.txt lists reset"
 Assert-Ok ($versionText -match 'uninstall:\s*Uninstall\.bat') "VERSION.txt lists uninstall"
 
@@ -204,12 +216,15 @@ try {
         throw "--self-check failed with exit code $LASTEXITCODE"
     }
     Assert-Ok (Test-Path -LiteralPath $selfCheckPath) "self-check report is generated"
-    $selfCheck = Get-Content -LiteralPath $selfCheckPath -Raw
+    $selfCheck = Get-Content -LiteralPath $selfCheckPath -Raw -Encoding UTF8
     Assert-Ok ($selfCheck -match 'cookie_saved:\s*false') "self-check uses isolated APPDATA"
     Assert-Ok (-not ($selfCheck -match 'POESESSID\s*=\s*[A-Za-z0-9_%\-]{8,}|Cookie:\s*[^\r\n]*POESESSID\s*=')) "self-check does not expose plain cookie"
     Assert-Ok ($selfCheck -match 'StartHere\.bat:\s*ok') "self-check verifies StartHere"
+    Assert-Ok ($selfCheck -match '开始使用\.bat:\s*ok') "self-check verifies Chinese StartHere"
     Assert-Ok ($selfCheck -match 'control_center\.ps1:\s*ok') "self-check verifies control center"
+    Assert-Ok ($selfCheck -match '查询历史\.bat:\s*ok') "self-check verifies Chinese history"
     Assert-Ok ($selfCheck -match 'SupportBundle\.bat:\s*ok') "self-check verifies support bundle"
+    Assert-Ok ($selfCheck -match '生成支持包\.bat:\s*ok') "self-check verifies Chinese support bundle"
     Assert-Ok ($selfCheck -match 'ResetData\.bat:\s*ok') "self-check verifies reset"
     Assert-Ok ($selfCheck -match 'Uninstall\.bat:\s*ok') "self-check verifies uninstall"
     Assert-Ok ($selfCheck -match 'SUPPORT\.md:\s*ok') "self-check verifies support guide"

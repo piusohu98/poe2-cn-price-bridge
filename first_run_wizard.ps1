@@ -43,23 +43,23 @@ function Test-CookieInput($text) {
         Background="Transparent"
         FontFamily="Microsoft YaHei UI">
     <Window.Resources>
-        <SolidColorBrush x:Key="PageBrush" Color="#090D14"/>
-        <SolidColorBrush x:Key="PanelBrush" Color="#101720"/>
-        <SolidColorBrush x:Key="PanelAltBrush" Color="#16212C"/>
-        <SolidColorBrush x:Key="StrokeBrush" Color="#263445"/>
+        <SolidColorBrush x:Key="PageBrush" Color="#080B10"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#0F151E"/>
+        <SolidColorBrush x:Key="PanelAltBrush" Color="#131C28"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#202B3A"/>
         <SolidColorBrush x:Key="TextBrush" Color="#E8F1F8"/>
-        <SolidColorBrush x:Key="MutedBrush" Color="#91A3B8"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#32E6A1"/>
-        <SolidColorBrush x:Key="CyanBrush" Color="#23C7E8"/>
-        <SolidColorBrush x:Key="GoldBrush" Color="#F4D35E"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#8EA0B6"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#5EEAD4"/>
+        <SolidColorBrush x:Key="CyanBrush" Color="#38BDF8"/>
+        <SolidColorBrush x:Key="GoldBrush" Color="#FBBF24"/>
         <SolidColorBrush x:Key="DangerBrush" Color="#F87171"/>
 
         <Style x:Key="BaseButton" TargetType="{x:Type Button}">
             <Setter Property="Height" Value="38"/>
             <Setter Property="Padding" Value="18,0"/>
             <Setter Property="Foreground" Value="#E8F1F8"/>
-            <Setter Property="Background" Value="#172230"/>
-            <Setter Property="BorderBrush" Value="#314154"/>
+            <Setter Property="Background" Value="#17202B"/>
+            <Setter Property="BorderBrush" Value="#2B3A4D"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FontSize" Value="13"/>
@@ -68,7 +68,7 @@ function Test-CookieInput($text) {
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Border x:Name="Bd"
-                                CornerRadius="10"
+                                CornerRadius="13"
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}">
@@ -77,11 +77,11 @@ function Test-CookieInput($text) {
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#223145"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4B6078"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#223044"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#52677F"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#0F1824"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#101722"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.42"/>
@@ -93,9 +93,38 @@ function Test-CookieInput($text) {
         </Style>
 
         <Style x:Key="PrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BaseButton}">
-            <Setter Property="Background" Value="#137A5B"/>
-            <Setter Property="BorderBrush" Value="#32E6A1"/>
-            <Setter Property="Foreground" Value="#F0FFF8"/>
+            <Setter Property="Background" Value="#0F766E"/>
+            <Setter Property="BorderBrush" Value="#2DD4BF"/>
+            <Setter Property="Foreground" Value="#F0FDFA"/>
+        </Style>
+
+        <Style x:Key="ChromeButton" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Foreground" Value="#9FB3C8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd" CornerRadius="9" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#223044"/>
+                                <Setter Property="Foreground" Value="#E8F1F8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3A141B"/>
+                                <Setter Property="Foreground" Value="#FECACA"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="TextInput" TargetType="{x:Type TextBox}">
@@ -108,16 +137,40 @@ function Test-CookieInput($text) {
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
             <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TextBox}">
+                        <Border x:Name="Bd"
+                                CornerRadius="14"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2DD4BF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
     <Border Margin="8"
-            CornerRadius="18"
-            Background="{StaticResource PageBrush}"
-            BorderBrush="#23C7E8"
+            CornerRadius="22"
+            BorderBrush="#223143"
             BorderThickness="1">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#101824" Offset="0"/>
+                <GradientStop Color="#080B10" Offset="0.55"/>
+                <GradientStop Color="#05070A" Offset="1"/>
+            </LinearGradientBrush>
+        </Border.Background>
         <Border.Effect>
-            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.42" Color="#000000"/>
+            <DropShadowEffect BlurRadius="34" ShadowDepth="0" Opacity="0.50" Color="#000000"/>
         </Border.Effect>
 
         <Grid>
@@ -128,31 +181,30 @@ function Test-CookieInput($text) {
 
             <Border x:Name="TitleBar"
                     Grid.Row="0"
-                    CornerRadius="18,18,0,0"
+                    CornerRadius="22,22,0,0"
                     Background="#0B111A">
                 <Grid>
-                    <TextBlock Text="清价 POE2"
-                               Margin="22,0,0,0"
-                               VerticalAlignment="Center"
-                               FontSize="13"
-                               FontWeight="Bold"
-                               Foreground="#E8F1F8"/>
+                    <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
+                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        </Border>
+                        <TextBlock Text="清价 POE2"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center"
+                                   FontSize="13"
+                                   FontWeight="Bold"
+                                   Foreground="#E8F1F8"/>
+                    </StackPanel>
                     <Button x:Name="CloseButton"
                             Content="×"
-                            Width="38"
-                            Height="30"
                             HorizontalAlignment="Right"
                             Margin="0,0,14,0"
                             VerticalAlignment="Center"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Foreground="#9FB3C8"
-                            FontSize="18"
-                            Cursor="Hand"/>
+                            Style="{StaticResource ChromeButton}"/>
                 </Grid>
             </Border>
 
-                <Grid Grid.Row="1" Margin="28,24,28,24">
+            <Grid Grid.Row="1" Margin="30,24,30,24">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="300"/>
                     <ColumnDefinition Width="24"/>

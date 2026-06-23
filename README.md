@@ -20,27 +20,27 @@
 ## 下载后怎么用
 
 1. 解压发布包 `QingPricePOE2-v*-windows-x64.zip`。
-2. 先运行 `StartHere.bat`，在控制中心里点 `首次使用向导`。
+2. 先运行 `开始使用.bat`，在控制中心里点 `首次使用向导`。
 3. 按向导完成登录、保存 Cookie、验证 Cookie 和启动工具。
-4. 以后可以继续用 `StartHere.bat`，也可以直接运行 `Start.bat` 或双击 `QingPricePOE2.exe`。
+4. 以后可以继续用 `开始使用.bat`，也可以直接运行 `启动查价.bat` 或双击 `QingPricePOE2.exe`。
 5. 进游戏，鼠标悬停物品，按 `Ctrl+C`。
 6. 查看右上角价格面板；关闭面板后工具仍在托盘后台运行。
 
 如果直接运行主程序且还没有保存 Cookie，工具会自动打开首次使用向导。
 
-如果只想单独设置 Cookie，可以运行 `SetCookie.bat`。窗口会自动识别剪贴板里的 POESESSID，保存后会自动验证 Cookie 是否可用。
+如果只想单独设置 Cookie，可以运行 `设置Cookie.bat`。窗口会自动识别剪贴板里的 POESESSID，保存后会自动验证 Cookie 是否可用。
 
 如果不知道在哪里复制 Cookie，可以在浏览器打开 `https://poe.game.qq.com/trade2` 后按 `F12`，到 `Application/应用 -> Cookies -> https://poe.game.qq.com`，复制 `POESESSID`。也可以复制完整 `Cookie: ...` 请求头。
 
 需要手动确认 Cookie 是否仍可用时，运行 `ValidateCookie.bat`，或托盘右键选择 `验证 Cookie`。
 
-需要查看最近查询时，运行 `History.bat`，或托盘右键选择 `查询历史`。历史记录不会保存物品全文或 Cookie，只保存查询摘要、结果、错误信息和市集链接。
+需要查看最近查询时，运行 `查询历史.bat`，或托盘右键选择 `查询历史`。历史记录不会保存物品全文或 Cookie，只保存查询摘要、结果、错误信息和市集链接。
 
 发布包内的 `VERSION.txt` 记录版本、构建时间和常用入口，`CHANGELOG.md` 记录版本变化。
 
 ## 控制中心
 
-运行 `StartHere.bat` 或 `ControlCenter.bat` 会打开控制中心，集中提供启动工具、首次使用向导、设置 Cookie、常用设置、查询历史、运行自检、导出诊断、重置和卸载。
+运行 `开始使用.bat`、`StartHere.bat` 或 `ControlCenter.bat` 会打开控制中心，集中提供启动工具、首次使用向导、设置 Cookie、常用设置、查询历史、运行自检、导出诊断、重置和卸载。发布包保留英文入口用于脚本兼容，客户日常优先点中文入口。
 
 ## 重置和卸载
 
