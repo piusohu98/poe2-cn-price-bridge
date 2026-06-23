@@ -141,9 +141,39 @@ $customerUiScripts = @(
     'history_gui.ps1'
 )
 foreach ($uiScript in $customerUiScripts) {
-    $uiText = Get-Content -LiteralPath (Join-Path $packageDir $uiScript) -Raw
+    $uiPath = Join-Path $packageDir $uiScript
+    $uiBytes = [System.IO.File]::ReadAllBytes($uiPath)
+    Assert-Ok ($uiBytes.Length -gt 3 -and $uiBytes[0] -eq 0xEF -and $uiBytes[1] -eq 0xBB -and $uiBytes[2] -eq 0xBF) "$uiScript is UTF-8 BOM for Windows PowerShell"
+    $uiText = Get-Content -LiteralPath $uiPath -Raw
     Assert-Ok ($uiText -match 'PresentationFramework') "$uiScript uses WPF"
     Assert-Ok (-not ($uiText -match 'System\.Windows\.Forms|DataGridView|FormBorderStyle|ClientSize')) "$uiScript does not use legacy WinForms UI"
+}
+
+$windowsPowerShellParser = Join-Path $env:TEMP ("qingprice-ps5-parse-" + [guid]::NewGuid().ToString('N') + '.ps1')
+[System.IO.File]::WriteAllText($windowsPowerShellParser, @'
+param(
+    [Parameter(Mandatory = $true)]
+    [string] $Path
+)
+
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
+    foreach ($parseError in $parseErrors) {
+        Write-Host "$($parseError.Extent.StartLineNumber):$($parseError.Extent.StartColumnNumber) $($parseError.Message)"
+    }
+    exit 1
+}
+'@, [System.Text.UTF8Encoding]::new($true))
+try {
+    foreach ($uiScript in $customerUiScripts) {
+        $uiPath = Join-Path $packageDir $uiScript
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $windowsPowerShellParser -Path $uiPath | Out-Host
+        Assert-Ok ($LASTEXITCODE -eq 0) "$uiScript parses in Windows PowerShell"
+    }
+} finally {
+    Remove-Item -LiteralPath $windowsPowerShellParser -Force -ErrorAction SilentlyContinue
 }
 
 $cookieGui = Get-Content -LiteralPath (Join-Path $packageDir 'set_cookie_gui.ps1') -Raw
@@ -220,6 +250,19 @@ try {
 }
 
 if ($RunLaunchSmoke) {
+    foreach ($uiScript in $customerUiScripts) {
+        $uiPath = Join-Path $packageDir $uiScript
+        $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File', $uiPath, '-Root', $packageDir) -PassThru
+        Start-Sleep -Milliseconds 1400
+        try {
+            Assert-Ok (-not $process.HasExited) "$uiScript WPF window launches"
+        } finally {
+            if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
     Get-Process QingPricePOE2,poe2_cn_price_bridge -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Process -FilePath $exePath -WorkingDirectory $packageDir
     Start-Sleep -Milliseconds 900
