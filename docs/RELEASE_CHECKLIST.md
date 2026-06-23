@@ -47,7 +47,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_release.ps1 -RunLaunchSm
 - 检查 `selfcheck.txt` 的 package files 区域包含 `StartHere.bat`、`开始使用.bat`、`control_center.ps1`、`CheckUpdate.bat`、`检查更新.bat`、`SupportBundle.bat`、`ResetData.bat`、`Uninstall.bat` 和 `SUPPORT.md`。
 - 运行 `CheckUpdate.bat`，确认生成 `update-check.txt`；网络失败时确认文案说明 GitHub API 抖动不需要授权。
 - 运行 `Diagnostics.bat`，确认生成 `diagnostics.txt`。
-- 运行 `SupportBundle.bat`，确认生成 `support-bundle-*.zip`，且压缩包内含 `selfcheck.txt` 和 `diagnostics.txt`。
+- 运行 `SupportBundle.bat`，确认生成 `support-bundle-*.zip`，且压缩包内含 `selfcheck.txt`、`diagnostics.txt` 和 `update-check.txt`。
 - 检查诊断文件只包含 `cookie_saved: true/false`，不包含明文 Cookie。
 - 运行 `ResetData.bat`，在未输入确认词时确认会取消，不删除数据。
 - 运行 `Uninstall.bat`，在未输入确认词时确认会取消，不删除数据。

@@ -27,6 +27,7 @@ Set-Content -LiteralPath (Join-Path $bundleDir 'README.txt') -Encoding UTF8 -Val
 可发送给维护者的文件:
 - selfcheck.txt
 - diagnostics.txt
+- update-check.txt
 - VERSION.txt
 - SUPPORT.md
 
@@ -43,6 +44,11 @@ if ($LASTEXITCODE -ne 0) {
 & $exe --diagnostics (Join-Path $bundleDir 'diagnostics.txt') | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "diagnostics 失败，退出码 $LASTEXITCODE"
+}
+
+& $exe --check-update (Join-Path $bundleDir 'update-check.txt') | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "check-update 失败，退出码 $LASTEXITCODE"
 }
 
 foreach ($name in @('VERSION.txt', 'SUPPORT.md', 'CHANGELOG.md')) {

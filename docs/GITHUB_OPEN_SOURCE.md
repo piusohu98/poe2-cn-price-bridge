@@ -51,7 +51,7 @@ git push origin v0.2.0
 - `SelfCheck.bat` 生成的 `selfcheck.txt`。
 - `Diagnostics.bat` 生成的 `diagnostics.txt`。
 - `检查更新.bat` 生成的 `update-check.txt`。
-- 或直接提供 `SupportBundle.bat` 生成的 `support-bundle-*.zip`。
+- 或直接提供 `SupportBundle.bat` 生成的 `support-bundle-*.zip`，其中已经包含 `update-check.txt`。
 
 提醒用户不要发送明文 Cookie、POESESSID、手机号、QQ 号或支付信息。
 

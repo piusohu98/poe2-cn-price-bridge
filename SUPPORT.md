@@ -8,7 +8,7 @@
 - Windows 版本。
 - 问题类型：启动、Cookie、查价结果、游戏内面板、热键、发布包。
 - 复现步骤：做了什么、看到什么、期望什么。
-- 优先提供 `生成支持包.bat` 生成的 `support-bundle-*.zip`。
+- 优先提供 `生成支持包.bat` 生成的 `support-bundle-*.zip`，里面已经包含自检、诊断和更新检查。
 - 如不方便打包，再分别提供 `运行自检.bat` 生成的 `selfcheck.txt` 和 `Diagnostics.bat` 生成的 `diagnostics.txt`。
 - 怀疑版本不是最新时，提供 `检查更新.bat` 生成的 `update-check.txt`。
 

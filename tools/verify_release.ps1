@@ -256,6 +256,7 @@ try {
     Expand-Archive -LiteralPath $supportZip.FullName -DestinationPath $supportExtract -Force
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'selfcheck.txt')) "support bundle contains self-check"
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'diagnostics.txt')) "support bundle contains diagnostics"
+    Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'update-check.txt')) "support bundle contains update check"
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'VERSION.txt')) "support bundle contains version"
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'SUPPORT.md')) "support bundle contains support guide"
     $supportLeak = @(Get-ChildItem -LiteralPath $supportExtract -Recurse -File |
