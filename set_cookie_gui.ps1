@@ -1,11 +1,12 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string] $Root
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
@@ -23,15 +24,6 @@ $cookieHelp = @"
 5. 回到清价窗口，点击“从剪贴板识别”或直接粘贴后保存。
 "@
 
-function Set-Status($text, $kind = 'info') {
-    $script:status.Text = $text
-    switch ($kind) {
-        'ok' { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(134, 239, 172) }
-        'error' { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113) }
-        default { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(253, 230, 138) }
-    }
-}
-
 function Test-CookieInput($text) {
     if ([string]::IsNullOrWhiteSpace($text)) {
         return $false
@@ -45,184 +37,354 @@ function Test-CookieInput($text) {
     return $false
 }
 
-function New-Label($text, $x, $y, $w, $h, $size = 9, $bold = $false, $color = $null) {
-    $label = New-Object System.Windows.Forms.Label
-    $label.Text = $text
-    $label.AutoSize = $false
-    $label.Location = New-Object System.Drawing.Point($x, $y)
-    $label.Size = New-Object System.Drawing.Size($w, $h)
-    $style = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
-    $label.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $size, $style)
-    $label.ForeColor = if ($color) { $color } else { [System.Drawing.Color]::FromArgb(203, 213, 225) }
-    $form.Controls.Add($label)
-    return $label
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="清价 POE2 - Cookie 设置"
+        Width="840" Height="520"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PageBrush" Color="#090D14"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#101720"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#263445"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#E8F1F8"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#91A3B8"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#32E6A1"/>
+        <SolidColorBrush x:Key="GoldBrush" Color="#F4D35E"/>
+
+        <Style x:Key="BaseButton" TargetType="{x:Type Button}">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Foreground" Value="#E8F1F8"/>
+            <Setter Property="Background" Value="#172230"/>
+            <Setter Property="BorderBrush" Value="#314154"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#223145"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4B6078"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#0F1824"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.42"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="#137A5B"/>
+            <Setter Property="BorderBrush" Value="#32E6A1"/>
+            <Setter Property="Foreground" Value="#F0FFF8"/>
+        </Style>
+
+        <Style x:Key="TextInput" TargetType="{x:Type TextBox}">
+            <Setter Property="Background" Value="#0A111A"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#344457"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#32E6A1"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="8" CornerRadius="18" Background="{StaticResource PageBrush}" BorderBrush="#23C7E8" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.42" Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="18,18,0,0" Background="#0B111A">
+                <Grid>
+                    <TextBlock Text="清价 POE2" Margin="22,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                    <Button x:Name="CloseButton" Content="×" Width="38" Height="30" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" Foreground="#9FB3C8" FontSize="18" Cursor="Hand"/>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="28,24,28,22">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="72"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="58"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="270"/>
+                    <ColumnDefinition Width="24"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.ColumnSpan="3">
+                    <TextBlock Text="保存国服 Cookie" FontSize="23" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                    <TextBlock Text="POESESSID 只用 Windows DPAPI 加密保存到当前用户，不写入日志和诊断文件。" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" FontSize="13"/>
+                </StackPanel>
+
+                <Border Grid.Row="1" Grid.Column="0" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="获取步骤" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold"/>
+                        <StackPanel Grid.Row="1" Margin="0,18,0,0">
+                            <TextBlock Text="1. 打开国服市集并登录" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                            <TextBlock Text="2. F12 -> Application/应用 -> Cookies" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="3. 选择 https://poe.game.qq.com" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="4. 复制 POESESSID 的 Value" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="2">
+                            <Button x:Name="OpenButton" Content="打开登录页" Style="{StaticResource PrimaryButton}" Margin="0,0,0,10"/>
+                            <Button x:Name="CopyHelpButton" Content="复制步骤" Style="{StaticResource BaseButton}" Margin="0,0,0,10"/>
+                            <Button x:Name="PasteButton" Content="从剪贴板识别" Style="{StaticResource BaseButton}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Grid.Column="2" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="54"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel>
+                            <Button x:Name="ClearButton" DockPanel.Dock="Right" Content="清空" Width="74" Height="32" Style="{StaticResource BaseButton}"/>
+                            <TextBlock Text="粘贴 POESESSID 值或完整 Cookie 请求头" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBox x:Name="CookieBox" Grid.Row="1" Margin="0,14,0,12" AcceptsReturn="True" TextWrapping="Wrap" Style="{StaticResource TextInput}"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                            <Button x:Name="SaveButton" Content="保存并验证" Width="124" Style="{StaticResource PrimaryButton}"/>
+                            <Button x:Name="ValidateButton" Content="验证现有" Width="108" Margin="10,0,0,0" Style="{StaticResource BaseButton}"/>
+                            <Button x:Name="StartButton" Content="启动工具" Width="108" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}" IsEnabled="False"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border x:Name="StatusShell" Grid.Row="2" Grid.ColumnSpan="3" CornerRadius="14" Background="#111A24" BorderBrush="#263445" BorderThickness="1" Padding="16,0" VerticalAlignment="Bottom" Height="46">
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="CloseActionButton" Content="关闭" Width="88" Height="32" DockPanel.Dock="Right" Style="{StaticResource BaseButton}"/>
+                        <TextBlock x:Name="StatusText" Text="准备就绪。复制 POESESSID 后保存并验证。" VerticalAlignment="Center" Foreground="{StaticResource GoldBrush}" FontSize="13"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$window = [Windows.Markup.XamlReader]::Load($reader)
+
+function Find-Control($name) {
+    return $window.FindName($name)
 }
 
-function New-Button($text, $x, $y, $w, $h = 34, $primary = $false) {
-    $button = New-Object System.Windows.Forms.Button
-    $button.Text = $text
-    $button.Location = New-Object System.Drawing.Point($x, $y)
-    $button.Size = New-Object System.Drawing.Size($w, $h)
-    $button.FlatStyle = 'Flat'
-    $button.FlatAppearance.BorderSize = 1
-    if ($primary) {
-        $button.BackColor = [System.Drawing.Color]::FromArgb(31, 91, 72)
-        $button.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(52, 211, 153)
-        $button.ForeColor = [System.Drawing.Color]::FromArgb(220, 252, 231)
-    } else {
-        $button.BackColor = [System.Drawing.Color]::FromArgb(24, 28, 36)
-        $button.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(58, 65, 78)
-        $button.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
+$titleBar = Find-Control 'TitleBar'
+$closeButton = Find-Control 'CloseButton'
+$closeActionButton = Find-Control 'CloseActionButton'
+$openButton = Find-Control 'OpenButton'
+$copyHelpButton = Find-Control 'CopyHelpButton'
+$pasteButton = Find-Control 'PasteButton'
+$clearButton = Find-Control 'ClearButton'
+$saveButton = Find-Control 'SaveButton'
+$validateButton = Find-Control 'ValidateButton'
+$startButton = Find-Control 'StartButton'
+$cookieBox = Find-Control 'CookieBox'
+$statusText = Find-Control 'StatusText'
+$statusShell = Find-Control 'StatusShell'
+
+$iconPath = Join-Path $rootPath 'assets\app.ico'
+if (Test-Path -LiteralPath $iconPath) {
+    $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($iconPath))
+}
+
+function New-Brush($hex) {
+    return New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
+}
+
+function Set-Status {
+    param(
+        [string] $Text,
+        [string] $Kind = 'info'
+    )
+    $statusText.Text = $Text
+    switch ($Kind) {
+        'ok' {
+            $statusText.Foreground = New-Brush '#32E6A1'
+            $statusShell.BorderBrush = New-Brush '#1C8D68'
+        }
+        'error' {
+            $statusText.Foreground = New-Brush '#F87171'
+            $statusShell.BorderBrush = New-Brush '#8E303A'
+        }
+        default {
+            $statusText.Foreground = New-Brush '#F4D35E'
+            $statusShell.BorderBrush = New-Brush '#384657'
+        }
     }
-    $form.Controls.Add($button)
-    return $button
+}
+
+function Update-Ui {
+    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 }
 
 function Save-And-ValidateCookie {
-    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
-        Set-Status '找不到 QingPricePOE2.exe，请确认从完整发布包中运行。' 'error'
+    $exeAvailable = $false
+    if ($exe) {
+        $exeAvailable = Test-Path -LiteralPath $exe
+    }
+    if (-not $exeAvailable) {
+        Set-Status -Text '找不到 QingPricePOE2.exe，请确认从完整发布包中运行。' -Kind 'error'
         return
     }
-    if (-not (Test-CookieInput $box.Text)) {
-        Set-Status '没有识别到 POESESSID。请粘贴 POESESSID 值或完整 Cookie 请求头。' 'error'
+
+    $cookieText = $cookieBox.Text
+    $cookieLooksValid = Test-CookieInput $cookieText
+    if (-not $cookieLooksValid) {
+        Set-Status -Text '没有识别到 POESESSID。请粘贴 POESESSID 值或完整 Cookie 请求头。' -Kind 'error'
         return
     }
 
     $tmp = [System.IO.Path]::GetTempFileName()
-    try {
-        [System.IO.File]::WriteAllText($tmp, $box.Text, [System.Text.UTF8Encoding]::new($false))
-        Set-Status '正在保存 Cookie...'
-        $form.Refresh()
-        $process = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
-        if ($process.ExitCode -ne 0) {
-            Set-Status "保存失败，退出码: $($process.ExitCode)" 'error'
-            return
-        }
-
-        Set-Status '已保存，正在请求国服 trade2 验证...'
-        $form.Refresh()
-        $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
-        if ($validation.ExitCode -eq 0) {
-            $start.Enabled = $true
-            Set-Status 'Cookie 已保存并验证通过，可以启动工具。' 'ok'
-        } else {
-            Set-Status '已保存，但验证失败。请重新登录国服市集并复制新的 POESESSID。' 'error'
-        }
-    } finally {
+    [System.IO.File]::WriteAllText($tmp, $cookieText, [System.Text.UTF8Encoding]::new($false))
+    Set-Status -Text '正在加密保存 Cookie...'
+    Update-Ui
+    $process = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        Set-Status -Text "保存失败，退出码: $($process.ExitCode)" -Kind 'error'
+        return
     }
+
+    Set-Status -Text '已保存，正在请求国服 trade2 验证...'
+    Update-Ui
+    $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    if ($validation.ExitCode -ne 0) {
+        Set-Status -Text '已保存，但验证失败。请重新登录国服市集并复制新的 POESESSID。' -Kind 'error'
+        return
+    }
+
+    $startButton.IsEnabled = $true
+    Set-Status -Text 'Cookie 已保存并验证通过，可以启动工具。' -Kind 'ok'
 }
 
-$form = New-Object System.Windows.Forms.Form
-$form.Text = '清价 POE2 - Cookie 设置'
-$form.StartPosition = 'CenterScreen'
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
-$form.MinimizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(720, 470)
-$form.BackColor = [System.Drawing.Color]::FromArgb(13, 16, 21)
-$form.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-$form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
-$iconPath = Join-Path $rootPath 'assets\app.ico'
-if (Test-Path -LiteralPath $iconPath) {
-    $form.Icon = New-Object System.Drawing.Icon($iconPath)
+$titleBar.add_MouseLeftButtonDown({
+    try {
+        $window.DragMove()
+    } catch {}
+})
+
+$closeHandler = {
+    $window.Close()
 }
+$closeButton.add_Click($closeHandler)
+$closeActionButton.add_Click($closeHandler)
 
-New-Label '保存国服 POESESSID' 24 18 420 34 16 $true ([System.Drawing.Color]::FromArgb(134, 239, 172)) | Out-Null
-New-Label 'Cookie 只会用 Windows DPAPI 加密保存到当前 Windows 用户，本窗口不会把明文写入日志。' 26 54 660 24 9 $false ([System.Drawing.Color]::FromArgb(148, 163, 184)) | Out-Null
-
-New-Label '获取步骤' 26 98 250 24 10 $true ([System.Drawing.Color]::FromArgb(226, 232, 240)) | Out-Null
-New-Label "1. 打开国服市集并登录`r`n2. F12 -> Application/应用 -> Cookies`r`n3. 选择 https://poe.game.qq.com`r`n4. 复制 POESESSID 的 Value" 28 130 265 118 9 $false ([System.Drawing.Color]::FromArgb(203, 213, 225)) | Out-Null
-
-$open = New-Button '打开登录页' 28 268 120 34 $true
-$copyHelp = New-Button '复制步骤' 158 268 100
-$paste = New-Button '从剪贴板识别' 28 314 230 34
-$clear = New-Button '清空输入' 28 360 100
-
-New-Label '粘贴 POESESSID 值或完整 Cookie 请求头' 320 98 360 24 10 $true ([System.Drawing.Color]::FromArgb(226, 232, 240)) | Out-Null
-$box = New-Object System.Windows.Forms.TextBox
-$box.Multiline = $true
-$box.ScrollBars = 'Vertical'
-$box.Location = New-Object System.Drawing.Point(320, 128)
-$box.Size = New-Object System.Drawing.Size(370, 190)
-$box.BackColor = [System.Drawing.Color]::FromArgb(9, 12, 18)
-$box.ForeColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
-$box.BorderStyle = 'FixedSingle'
-$form.Controls.Add($box)
-
-$save = New-Button '保存并验证' 320 336 130 36 $true
-$validate = New-Button '验证现有 Cookie' 462 336 130 36
-$start = New-Button '启动工具' 604 336 86 36 $true
-$start.Enabled = $false
-$close = New-Button '关闭' 604 384 86 34
-
-$status = New-Label '准备就绪。可以先打开登录页，复制 POESESSID 后回到这里保存。' 24 426 666 28 9 $false ([System.Drawing.Color]::FromArgb(253, 230, 138))
-
-$open.Add_Click({
+$openButton.add_Click({
     Start-Process $tradeHome
-    Set-Status '登录完成后复制 POESESSID 的 Value，再回到这里点击“从剪贴板识别”。'
+    Set-Status -Text '登录完成后复制 POESESSID 的 Value，再回到这里点击“从剪贴板识别”。'
 })
 
-$copyHelp.Add_Click({
-    [System.Windows.Forms.Clipboard]::SetText($cookieHelp)
-    Set-Status '已复制 Cookie 获取步骤。'
+$copyHelpButton.add_Click({
+    [System.Windows.Clipboard]::SetText($cookieHelp)
+    Set-Status -Text '已复制 Cookie 获取步骤。'
 })
 
-$paste.Add_Click({
-    if (-not [System.Windows.Forms.Clipboard]::ContainsText()) {
-        Set-Status '剪贴板没有文本。' 'error'
+$pasteButton.add_Click({
+    $hasClipboardText = [System.Windows.Clipboard]::ContainsText()
+    if (-not $hasClipboardText) {
+        Set-Status -Text '剪贴板没有文本。' -Kind 'error'
         return
     }
-    $clip = [System.Windows.Forms.Clipboard]::GetText()
-    $box.Text = $clip
-    if (Test-CookieInput $clip) {
-        Set-Status '已识别到可能的 POESESSID，可以保存并验证。' 'ok'
-    } else {
-        Set-Status '已粘贴，但没有明显识别到 POESESSID。请确认复制的是 Value 或完整 Cookie。' 'error'
-    }
-})
-
-$clear.Add_Click({
-    $box.Clear()
-    $start.Enabled = $false
-    Set-Status '已清空输入。'
-})
-
-$save.Add_Click({ Save-And-ValidateCookie })
-
-$validate.Add_Click({
-    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
-        Set-Status '找不到 QingPricePOE2.exe。' 'error'
+    $clip = [System.Windows.Clipboard]::GetText()
+    $cookieBox.Text = $clip
+    $cookieLooksValid = Test-CookieInput $clip
+    if ($cookieLooksValid) {
+        Set-Status -Text '已识别到可能的 POESESSID，可以保存并验证。' -Kind 'ok'
         return
     }
-    Set-Status '正在验证现有 Cookie...'
-    $form.Refresh()
+    Set-Status -Text '已粘贴，但没有明显识别到 POESESSID。请确认复制的是 Value 或完整 Cookie。' -Kind 'error'
+})
+
+$clearButton.add_Click({
+    $cookieBox.Clear()
+    $startButton.IsEnabled = $false
+    Set-Status -Text '已清空输入。'
+})
+
+$saveButton.add_Click({ Save-And-ValidateCookie })
+
+$validateButton.add_Click({
+    $exeAvailable = $false
+    if ($exe) {
+        $exeAvailable = Test-Path -LiteralPath $exe
+    }
+    if (-not $exeAvailable) {
+        Set-Status -Text '找不到 QingPricePOE2.exe。' -Kind 'error'
+        return
+    }
+    Set-Status -Text '正在验证现有 Cookie...'
+    Update-Ui
     $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
     if ($validation.ExitCode -eq 0) {
-        $start.Enabled = $true
-        Set-Status '现有 Cookie 验证通过。' 'ok'
-    } else {
-        Set-Status '现有 Cookie 不可用，请重新登录并保存新的 POESESSID。' 'error'
+        $startButton.IsEnabled = $true
+        Set-Status -Text '现有 Cookie 验证通过。' -Kind 'ok'
+        return
     }
+    Set-Status -Text '现有 Cookie 不可用，请重新登录并保存新的 POESESSID。' -Kind 'error'
 })
 
-$start.Add_Click({
-    if ($exe -and (Test-Path -LiteralPath $exe)) {
-        Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
-        Set-Status '工具已启动。进游戏悬停物品按 Ctrl+C 即可查价。' 'ok'
+$startButton.add_Click({
+    $exeAvailable = $false
+    if ($exe) {
+        $exeAvailable = Test-Path -LiteralPath $exe
     }
+    if (-not $exeAvailable) {
+        Set-Status -Text '找不到主程序，请确认发布包完整。' -Kind 'error'
+        return
+    }
+    Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
+    Set-Status -Text '工具已启动。进游戏悬停物品按 Ctrl+C 即可查价。' -Kind 'ok'
 })
 
-$close.Add_Click({ $form.Close() })
-
-$form.Add_Shown({
-    if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-        $clip = [System.Windows.Forms.Clipboard]::GetText()
-        if (Test-CookieInput $clip) {
-            $box.Text = $clip
-            Set-Status '已自动识别剪贴板里的 POESESSID，可以直接保存并验证。' 'ok'
-        }
+$window.add_ContentRendered({
+    $hasClipboardText = [System.Windows.Clipboard]::ContainsText()
+    if (-not $hasClipboardText) {
+        return
     }
+    $clip = [System.Windows.Clipboard]::GetText()
+    $cookieLooksValid = Test-CookieInput $clip
+    if (-not $cookieLooksValid) {
+        return
+    }
+    $cookieBox.Text = $clip
+    Set-Status -Text '已自动识别剪贴板里的 POESESSID，可以直接保存并验证。' -Kind 'ok'
 })
 
-[void] $form.ShowDialog()
+[void] $window.ShowDialog()

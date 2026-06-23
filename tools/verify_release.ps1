@@ -135,7 +135,7 @@ Assert-Ok ($parseErrorsFound.Count -eq 0) "package PowerShell scripts parse"
 
 $cookieGui = Get-Content -LiteralPath (Join-Path $packageDir 'set_cookie_gui.ps1') -Raw
 Assert-Ok ($cookieGui -match 'Test-CookieInput') "cookie setup has clipboard detection"
-Assert-Ok ($cookieGui -match 'Add_Shown') "cookie setup checks clipboard on open"
+Assert-Ok ($cookieGui -match 'Add_Shown|add_ContentRendered|Add_ContentRendered') "cookie setup checks clipboard on open"
 Assert-Ok ($cookieGui -match '--validate-cookie') "cookie setup can validate existing cookie"
 Assert-Ok ($cookieGui -match 'Save-And-ValidateCookie') "cookie setup saves and validates"
 

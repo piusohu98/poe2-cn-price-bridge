@@ -1,11 +1,12 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string] $Root
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exe = Join-Path $rootPath 'QingPricePOE2.exe'
@@ -14,47 +15,6 @@ $tradeHome = 'https://poe.game.qq.com/trade2'
 
 function Resolve-Tool($name) {
     Join-Path $rootPath $name
-}
-
-function Start-HiddenScript($script) {
-    if (Test-Path -LiteralPath $script) {
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $script, '-Root', $rootPath)
-    } else {
-        Set-Status "找不到 $([IO.Path]::GetFileName($script))"
-    }
-}
-
-function Start-VisibleScript($script) {
-    if (Test-Path -LiteralPath $script) {
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File', $script)
-    } else {
-        Set-Status "找不到 $([IO.Path]::GetFileName($script))"
-    }
-}
-
-function Start-SupportBundle {
-    $script = Resolve-Tool 'SupportBundle.ps1'
-    if (Test-Path -LiteralPath $script) {
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $script, '-Root', $rootPath)
-        Set-Status '正在生成支持包，完成后会打开文件位置。'
-    } else {
-        Set-Status '找不到 SupportBundle.ps1'
-    }
-}
-
-function Run-ExeCommand($args, $outputName) {
-    if (-not (Test-Path -LiteralPath $exe)) {
-        Set-Status '找不到 QingPricePOE2.exe'
-        return
-    }
-    $output = Join-Path $rootPath $outputName
-    $process = Start-Process -FilePath $exe -ArgumentList @($args, $output) -WorkingDirectory $rootPath -Wait -PassThru
-    if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $output)) {
-        Start-Process -FilePath $output
-        Set-Status "已生成 $outputName"
-    } else {
-        Set-Status "$outputName 生成失败，退出码 $($process.ExitCode)"
-    }
 }
 
 function Get-CookieState {
@@ -72,93 +32,337 @@ function Get-CookieState {
     return '未配置 Cookie'
 }
 
-function Set-Status($text) {
-    $script:status.Text = $text
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="清价 POE2 - 控制中心"
+        Width="820" Height="610"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PageBrush" Color="#090D14"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#101720"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#263445"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#E8F1F8"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#91A3B8"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#32E6A1"/>
+        <SolidColorBrush x:Key="GoldBrush" Color="#F4D35E"/>
+
+        <Style x:Key="BaseButton" TargetType="{x:Type Button}">
+            <Setter Property="Height" Value="46"/>
+            <Setter Property="Foreground" Value="#E8F1F8"/>
+            <Setter Property="Background" Value="#172230"/>
+            <Setter Property="BorderBrush" Value="#314154"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd" CornerRadius="12" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#223145"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4B6078"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#0F1824"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="#137A5B"/>
+            <Setter Property="BorderBrush" Value="#32E6A1"/>
+            <Setter Property="Foreground" Value="#F0FFF8"/>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="8" CornerRadius="18" Background="{StaticResource PageBrush}" BorderBrush="#23C7E8" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.42" Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="18,18,0,0" Background="#0B111A">
+                <Grid>
+                    <TextBlock Text="清价 POE2" Margin="22,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                    <Button x:Name="CloseButton" Content="×" Width="38" Height="30" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" Foreground="#9FB3C8" FontSize="18" Cursor="Hand"/>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="28,24,28,22">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="92"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="58"/>
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <StackPanel>
+                        <TextBlock Text="控制中心" FontSize="24" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                        <TextBlock Text="启动工具、设置 Cookie、查看历史、导出诊断和支持包。" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" FontSize="13"/>
+                    </StackPanel>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="999" Background="#181F2A" BorderBrush="#344457" BorderThickness="1" Padding="16,7">
+                        <TextBlock x:Name="CookieState" Text="未配置 Cookie" Foreground="{StaticResource GoldBrush}" FontWeight="SemiBold"/>
+                    </Border>
+                </Grid>
+
+                <Border Grid.Row="1" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="14">
+                    <UniformGrid x:Name="ButtonGrid" Columns="3"/>
+                </Border>
+
+                <Border x:Name="StatusShell" Grid.Row="2" CornerRadius="14" Background="#111A24" BorderBrush="#263445" BorderThickness="1" Padding="16,0" VerticalAlignment="Bottom" Height="46">
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="CloseActionButton" Content="关闭" Width="88" Height="32" DockPanel.Dock="Right" Style="{StaticResource BaseButton}"/>
+                        <TextBlock x:Name="StatusText" Text="准备就绪。第一次使用建议先点“首次使用向导”。" VerticalAlignment="Center" Foreground="{StaticResource GoldBrush}" FontSize="13"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$window = [Windows.Markup.XamlReader]::Load($reader)
+
+function Find-Control($name) {
+    return $window.FindName($name)
 }
 
-$form = New-Object System.Windows.Forms.Form
-$form.Text = '清价 POE2 - 控制中心'
-$form.StartPosition = 'CenterScreen'
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
-$form.MinimizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(760, 580)
-$form.BackColor = [System.Drawing.Color]::FromArgb(13, 16, 21)
-$form.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-$form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
+$titleBar = Find-Control 'TitleBar'
+$closeButton = Find-Control 'CloseButton'
+$closeActionButton = Find-Control 'CloseActionButton'
+$buttonGrid = Find-Control 'ButtonGrid'
+$cookieState = Find-Control 'CookieState'
+$status = Find-Control 'StatusText'
+$statusShell = Find-Control 'StatusShell'
+
 $iconPath = Join-Path $rootPath 'assets\app.ico'
 if (Test-Path -LiteralPath $iconPath) {
-    $form.Icon = New-Object System.Drawing.Icon($iconPath)
+    $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($iconPath))
 }
 
-function New-Label($text, $x, $y, $w, $h, $size = 9, $bold = $false, $color = $null) {
-    $label = New-Object System.Windows.Forms.Label
-    $label.Text = $text
-    $label.AutoSize = $false
-    $label.Location = New-Object System.Drawing.Point($x, $y)
-    $label.Size = New-Object System.Drawing.Size($w, $h)
-    $style = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
-    $label.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $size, $style)
-    $label.ForeColor = if ($color) { $color } else { [System.Drawing.Color]::FromArgb(203, 213, 225) }
-    $form.Controls.Add($label)
-    return $label
+function New-Brush($hex) {
+    return New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
 }
 
-function New-Button($text, $x, $y, $w, $h, $primary = $false) {
-    $button = New-Object System.Windows.Forms.Button
-    $button.Text = $text
-    $button.Location = New-Object System.Drawing.Point($x, $y)
-    $button.Size = New-Object System.Drawing.Size($w, $h)
-    $button.FlatStyle = 'Flat'
-    $button.FlatAppearance.BorderSize = 1
-    if ($primary) {
-        $button.BackColor = [System.Drawing.Color]::FromArgb(31, 91, 72)
-        $button.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(52, 211, 153)
-        $button.ForeColor = [System.Drawing.Color]::FromArgb(220, 252, 231)
-    } else {
-        $button.BackColor = [System.Drawing.Color]::FromArgb(24, 28, 36)
-        $button.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(58, 65, 78)
-        $button.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
+function Set-Status {
+    param(
+        [string] $Text,
+        [string] $Kind = 'info'
+    )
+    $status.Text = $Text
+    switch ($Kind) {
+        'ok' {
+            $status.Foreground = New-Brush '#32E6A1'
+            $statusShell.BorderBrush = New-Brush '#1C8D68'
+        }
+        'error' {
+            $status.Foreground = New-Brush '#F87171'
+            $statusShell.BorderBrush = New-Brush '#8E303A'
+        }
+        default {
+            $status.Foreground = New-Brush '#F4D35E'
+            $statusShell.BorderBrush = New-Brush '#384657'
+        }
     }
-    $form.Controls.Add($button)
-    return $button
 }
 
-New-Label '清价 POE2' 28 22 260 34 17 $true ([System.Drawing.Color]::FromArgb(134, 239, 172)) | Out-Null
-New-Label '国服 trade2 游戏内查价工具' 30 58 420 24 9 $false ([System.Drawing.Color]::FromArgb(148, 163, 184)) | Out-Null
-$versionText = if (Test-Path -LiteralPath (Join-Path $rootPath 'VERSION.txt')) {
-    (Get-Content -LiteralPath (Join-Path $rootPath 'VERSION.txt') -Raw -ErrorAction SilentlyContinue) -split "`r?`n" | Select-Object -First 2
-} else {
-    @('version: unknown')
-}
-New-Label ($versionText -join '    ') 30 84 690 24 9 $false ([System.Drawing.Color]::FromArgb(148, 163, 184)) | Out-Null
-
-$cookieState = New-Label (Get-CookieState) 590 28 130 28 9 $true ([System.Drawing.Color]::FromArgb(253, 230, 138))
-$status = New-Label '准备就绪。第一次使用建议先点“首次使用向导”。' 30 532 700 28 9 $false ([System.Drawing.Color]::FromArgb(253, 230, 138))
-
-$buttons = @(
-    @{ Text='启动工具'; X=30;  Y=130; Primary=$true;  Action={ if(Test-Path $exe){ Start-Process -FilePath $exe -WorkingDirectory $rootPath; Set-Status '已启动，托盘图标会常驻后台。' } else { Set-Status '找不到 QingPricePOE2.exe' } } },
-    @{ Text='首次使用向导'; X=270; Y=130; Primary=$true;  Action={ Start-HiddenScript (Resolve-Tool 'first_run_wizard.ps1'); Set-Status '已打开首次使用向导。' } },
-    @{ Text='设置 Cookie'; X=510; Y=130; Primary=$false; Action={ Start-HiddenScript (Resolve-Tool 'set_cookie_gui.ps1'); Set-Status '已打开 Cookie 设置窗口。' } },
-    @{ Text='常用设置'; X=30;  Y=190; Primary=$false; Action={ Start-HiddenScript (Resolve-Tool 'settings_gui.ps1'); Set-Status '已打开设置窗口。' } },
-    @{ Text='查询历史'; X=270; Y=190; Primary=$false; Action={ Start-HiddenScript (Resolve-Tool 'history_gui.ps1'); Set-Status '已打开查询历史。' } },
-    @{ Text='打开国服市集'; X=510; Y=190; Primary=$false; Action={ Start-Process $tradeHome; Set-Status '已打开国服市集。' } },
-    @{ Text='运行自检'; X=30;  Y=250; Primary=$false; Action={ Run-ExeCommand '--self-check' 'selfcheck.txt' } },
-    @{ Text='导出诊断'; X=270; Y=250; Primary=$false; Action={ Run-ExeCommand '--diagnostics' 'diagnostics.txt' } },
-    @{ Text='验证 Cookie'; X=510; Y=250; Primary=$false; Action={ if(Test-Path $exe){ $p=Start-Process -FilePath $exe -ArgumentList '--validate-cookie' -WorkingDirectory $rootPath -Wait -PassThru; if($p.ExitCode -eq 0){ Set-Status 'Cookie 验证通过。'; $cookieState.Text='Cookie 已验证' } else { Set-Status 'Cookie 验证失败，请重新设置。' } } } },
-    @{ Text='创建桌面快捷方式'; X=30;  Y=310; Primary=$false; Action={ Start-VisibleScript (Resolve-Tool 'InstallShortcut.ps1'); Set-Status '已打开快捷方式创建脚本。' } },
-    @{ Text='重置本机数据'; X=270; Y=310; Primary=$false; Action={ Start-VisibleScript (Resolve-Tool 'ResetData.ps1'); Set-Status '重置脚本已打开，需要输入 RESET 才会执行。' } },
-    @{ Text='卸载清理'; X=510; Y=310; Primary=$false; Action={ Start-VisibleScript (Resolve-Tool 'Uninstall.ps1'); Set-Status '卸载脚本已打开，需要输入 UNINSTALL 才会执行。' } },
-    @{ Text='生成支持包'; X=30;  Y=370; Primary=$false; Action={ Start-SupportBundle } },
-    @{ Text='打开说明'; X=270; Y=370; Primary=$false; Action={ $readme=Resolve-Tool 'README.md'; if(Test-Path $readme){ Start-Process $readme; Set-Status '已打开 README。' } } },
-    @{ Text='打开文件夹'; X=510; Y=370; Primary=$false; Action={ Start-Process $rootPath; Set-Status '已打开程序文件夹。' } },
-    @{ Text='关闭窗口'; X=270; Y=430; Primary=$false; Action={ $form.Close() } }
-)
-
-foreach ($item in $buttons) {
-    $button = New-Button $item.Text $item.X $item.Y 200 42 $item.Primary
-    $action = $item.Action
-    $button.Add_Click($action)
+function Refresh-CookieState {
+    $cookieState.Text = Get-CookieState
 }
 
-[void] $form.ShowDialog()
+function Start-HiddenScript($script) {
+    if (Test-Path -LiteralPath $script) {
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $script, '-Root', $rootPath)
+        return $true
+    }
+    Set-Status -Text "找不到 $([IO.Path]::GetFileName($script))" -Kind 'error'
+    return $false
+}
+
+function Start-VisibleScript($script) {
+    if (Test-Path -LiteralPath $script) {
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File', $script)
+        return $true
+    }
+    Set-Status -Text "找不到 $([IO.Path]::GetFileName($script))" -Kind 'error'
+    return $false
+}
+
+function Run-ExeCommand($arg, $outputName) {
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+        return
+    }
+    $output = Join-Path $rootPath $outputName
+    $process = Start-Process -FilePath $exe -ArgumentList @($arg, $output) -WorkingDirectory $rootPath -Wait -PassThru
+    if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $output)) {
+        Start-Process -FilePath $output
+        Set-Status -Text "已生成 $outputName" -Kind 'ok'
+        return
+    }
+    Set-Status -Text "$outputName 生成失败，退出码 $($process.ExitCode)" -Kind 'error'
+}
+
+function Start-SupportBundle {
+    $script = Resolve-Tool 'SupportBundle.ps1'
+    if (Test-Path -LiteralPath $script) {
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $script, '-Root', $rootPath)
+        Set-Status -Text '正在生成支持包，完成后会打开文件位置。'
+        return
+    }
+    Set-Status -Text '找不到 SupportBundle.ps1' -Kind 'error'
+}
+
+function New-ActionButton {
+    param(
+        [string] $Text,
+        [scriptblock] $Action,
+        [bool] $Primary = $false
+    )
+    $button = New-Object System.Windows.Controls.Button
+    $button.Content = $Text
+    if ($Primary) {
+        $button.Style = $window.Resources['PrimaryButton']
+    } else {
+        $button.Style = $window.Resources['BaseButton']
+    }
+    $button.add_Click($Action)
+    [void]$buttonGrid.Children.Add($button)
+}
+
+$titleBar.add_MouseLeftButtonDown({
+    try {
+        $window.DragMove()
+    } catch {}
+})
+
+$closeHandler = {
+    $window.Close()
+}
+$closeButton.add_Click($closeHandler)
+$closeActionButton.add_Click($closeHandler)
+
+Refresh-CookieState
+
+New-ActionButton '启动工具' {
+    if (Test-Path -LiteralPath $exe) {
+        Start-Process -FilePath $exe -WorkingDirectory $rootPath
+        Set-Status -Text '已启动，托盘图标会常驻后台。' -Kind 'ok'
+        return
+    }
+    Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+} $true
+
+New-ActionButton '首次使用向导' {
+    if (Start-HiddenScript (Resolve-Tool 'first_run_wizard.ps1')) {
+        Set-Status -Text '已打开首次使用向导。'
+    }
+} $true
+
+New-ActionButton '设置 Cookie' {
+    if (Start-HiddenScript (Resolve-Tool 'set_cookie_gui.ps1')) {
+        Set-Status -Text '已打开 Cookie 设置窗口。'
+    }
+}
+
+New-ActionButton '常用设置' {
+    if (Start-HiddenScript (Resolve-Tool 'settings_gui.ps1')) {
+        Set-Status -Text '已打开设置窗口。'
+    }
+}
+
+New-ActionButton '查询历史' {
+    if (Start-HiddenScript (Resolve-Tool 'history_gui.ps1')) {
+        Set-Status -Text '已打开查询历史。'
+    }
+}
+
+New-ActionButton '打开国服市集' {
+    Start-Process $tradeHome
+    Set-Status -Text '已打开国服市集。'
+}
+
+New-ActionButton '运行自检' {
+    Run-ExeCommand '--self-check' 'selfcheck.txt'
+}
+
+New-ActionButton '导出诊断' {
+    Run-ExeCommand '--diagnostics' 'diagnostics.txt'
+}
+
+New-ActionButton '验证 Cookie' {
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+        return
+    }
+    Set-Status -Text '正在验证 Cookie...'
+    $process = Start-Process -FilePath $exe -ArgumentList '--validate-cookie' -WorkingDirectory $rootPath -Wait -PassThru
+    if ($process.ExitCode -eq 0) {
+        Refresh-CookieState
+        $cookieState.Text = 'Cookie 已验证'
+        Set-Status -Text 'Cookie 验证通过。' -Kind 'ok'
+        return
+    }
+    Set-Status -Text 'Cookie 验证失败，请重新设置。' -Kind 'error'
+}
+
+New-ActionButton '创建桌面快捷方式' {
+    if (Start-VisibleScript (Resolve-Tool 'InstallShortcut.ps1')) {
+        Set-Status -Text '已打开快捷方式创建脚本。'
+    }
+}
+
+New-ActionButton '重置本机数据' {
+    if (Start-VisibleScript (Resolve-Tool 'ResetData.ps1')) {
+        Set-Status -Text '重置脚本已打开，需要输入 RESET 才会执行。'
+    }
+}
+
+New-ActionButton '卸载清理' {
+    if (Start-VisibleScript (Resolve-Tool 'Uninstall.ps1')) {
+        Set-Status -Text '卸载脚本已打开，需要输入 UNINSTALL 才会执行。'
+    }
+}
+
+New-ActionButton '生成支持包' {
+    Start-SupportBundle
+}
+
+New-ActionButton '打开说明' {
+    $readme = Resolve-Tool 'README.md'
+    if (Test-Path -LiteralPath $readme) {
+        Start-Process $readme
+        Set-Status -Text '已打开 README。'
+        return
+    }
+    Set-Status -Text '找不到 README.md' -Kind 'error'
+}
+
+New-ActionButton '打开文件夹' {
+    Start-Process $rootPath
+    Set-Status -Text '已打开程序文件夹。'
+}
+
+New-ActionButton '关闭窗口' {
+    $window.Close()
+}
+
+[void] $window.ShowDialog()

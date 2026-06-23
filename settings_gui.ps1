@@ -4,8 +4,9 @@
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $configDir = Join-Path $env:APPDATA 'poe2_cn_price_bridge'
@@ -53,216 +54,350 @@ function Save-Config($config) {
 
 $config = Ensure-Settings (Get-Config)
 
-$form = New-Object System.Windows.Forms.Form
-$form.Text = '清价 POE2 - 设置'
-$form.StartPosition = 'CenterScreen'
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
-$form.MinimizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(560, 430)
-$form.BackColor = [System.Drawing.Color]::FromArgb(18, 20, 24)
-$form.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-$form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="清价 POE2 - 设置"
+        Width="720" Height="540"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PageBrush" Color="#090D14"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#101720"/>
+        <SolidColorBrush x:Key="StrokeBrush" Color="#263445"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#E8F1F8"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#91A3B8"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#32E6A1"/>
+        <SolidColorBrush x:Key="GoldBrush" Color="#F4D35E"/>
+
+        <Style x:Key="BaseButton" TargetType="{x:Type Button}">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Foreground" Value="#E8F1F8"/>
+            <Setter Property="Background" Value="#172230"/>
+            <Setter Property="BorderBrush" Value="#314154"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#223145"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4B6078"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#0F1824"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="#137A5B"/>
+            <Setter Property="BorderBrush" Value="#32E6A1"/>
+            <Setter Property="Foreground" Value="#F0FFF8"/>
+        </Style>
+        <Style x:Key="Input" TargetType="{x:Type TextBox}">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Background" Value="#0A111A"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#344457"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#32E6A1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style x:Key="Combo" TargetType="{x:Type ComboBox}">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Background" Value="#0A111A"/>
+            <Setter Property="Foreground" Value="#0A111A"/>
+            <Setter Property="BorderBrush" Value="#344457"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="8" CornerRadius="18" Background="{StaticResource PageBrush}" BorderBrush="#23C7E8" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.42" Color="#000000"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="18,18,0,0" Background="#0B111A">
+                <Grid>
+                    <TextBlock Text="清价 POE2" Margin="22,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                    <Button x:Name="CloseButton" Content="×" Width="38" Height="30" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" Foreground="#9FB3C8" FontSize="18" Cursor="Hand"/>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="28,24,28,22">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="74"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="58"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="客户常用设置" FontSize="23" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                    <TextBlock Text="调整联赛、抓取数量、页面显示和热键。保存后运行中的工具会自动读取。" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" FontSize="13"/>
+                </StackPanel>
+
+                <Border Grid.Row="1" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="28"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="46"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="44"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="主联赛" Grid.Row="0" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PrimaryLeague" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="4" Style="{StaticResource Input}"/>
+
+                        <TextBlock Text="备用联赛" Grid.Row="1" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="FallbackLeague" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Style="{StaticResource Input}"/>
+
+                        <TextBlock Text="最多抓取挂单" Grid.Row="2" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="MaxFetch" Grid.Row="2" Grid.Column="1" Style="{StaticResource Input}"/>
+                        <TextBlock Text="每批 fetch 数" Grid.Row="2" Grid.Column="3" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="BatchSize" Grid.Row="2" Grid.Column="4" Style="{StaticResource Input}"/>
+
+                        <TextBlock Text="每页显示条数" Grid.Row="3" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PageSize" Grid.Row="3" Grid.Column="1" Style="{StaticResource Input}"/>
+                        <TextBlock Text="面板停留秒数" Grid.Row="3" Grid.Column="3" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TimeoutSeconds" Grid.Row="3" Grid.Column="4" Style="{StaticResource Input}"/>
+
+                        <TextBlock Text="手动查价热键" Grid.Row="4" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ManualHotkey" Grid.Row="4" Grid.Column="1" Width="170" HorizontalAlignment="Left" Style="{StaticResource Combo}"/>
+                        <CheckBox x:Name="AutoClipboard" Grid.Row="4" Grid.Column="3" Grid.ColumnSpan="2" Content="启用 Ctrl+C 自动查价" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+
+                        <TextBlock Grid.Row="5" Grid.ColumnSpan="5" Text="数值建议：最多抓取 80，每批 10，每页 8，面板停留 16 秒。热键可关闭，Ctrl+C 自动查价仍可单独启用。" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+
+                        <StackPanel Grid.Row="7" Grid.ColumnSpan="5" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="CookieButton" Content="设置 Cookie" Width="112" Style="{StaticResource BaseButton}"/>
+                            <Button x:Name="DefaultsButton" Content="恢复默认" Width="100" Margin="10,0,0,0" Style="{StaticResource BaseButton}"/>
+                            <Button x:Name="FolderButton" Content="配置目录" Width="100" Margin="10,0,0,0" Style="{StaticResource BaseButton}"/>
+                            <Button x:Name="SaveButton" Content="保存" Width="92" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border x:Name="StatusShell" Grid.Row="2" CornerRadius="14" Background="#111A24" BorderBrush="#263445" BorderThickness="1" Padding="16,0" VerticalAlignment="Bottom" Height="46">
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="CloseActionButton" Content="关闭" Width="88" Height="32" DockPanel.Dock="Right" Style="{StaticResource BaseButton}"/>
+                        <TextBlock x:Name="StatusText" Text="准备就绪。" VerticalAlignment="Center" Foreground="{StaticResource GoldBrush}" FontSize="13"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$window = [Windows.Markup.XamlReader]::Load($reader)
+
+function Find-Control($name) {
+    return $window.FindName($name)
+}
+
+$titleBar = Find-Control 'TitleBar'
+$closeButton = Find-Control 'CloseButton'
+$closeActionButton = Find-Control 'CloseActionButton'
+$primary = Find-Control 'PrimaryLeague'
+$fallback = Find-Control 'FallbackLeague'
+$maxFetch = Find-Control 'MaxFetch'
+$batch = Find-Control 'BatchSize'
+$pageSize = Find-Control 'PageSize'
+$timeout = Find-Control 'TimeoutSeconds'
+$manualHotkey = Find-Control 'ManualHotkey'
+$autoClipboard = Find-Control 'AutoClipboard'
+$cookie = Find-Control 'CookieButton'
+$defaultsButton = Find-Control 'DefaultsButton'
+$folder = Find-Control 'FolderButton'
+$save = Find-Control 'SaveButton'
+$status = Find-Control 'StatusText'
+$statusShell = Find-Control 'StatusShell'
+
 $iconPath = Join-Path $rootPath 'assets\app.ico'
 if (Test-Path -LiteralPath $iconPath) {
-    $form.Icon = New-Object System.Drawing.Icon($iconPath)
+    $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($iconPath))
 }
 
-function Add-Label($text, $x, $y, $w = 150) {
-    $label = New-Object System.Windows.Forms.Label
-    $label.Text = $text
-    $label.AutoSize = $false
-    $label.Location = New-Object System.Drawing.Point($x, $y)
-    $label.Size = New-Object System.Drawing.Size($w, 24)
-    $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-    $form.Controls.Add($label)
-    return $label
+function New-Brush($hex) {
+    return New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString($hex))
 }
 
-function Add-TextBox($text, $x, $y, $w = 250) {
-    $box = New-Object System.Windows.Forms.TextBox
-    $box.Text = [string]$text
-    $box.Location = New-Object System.Drawing.Point($x, $y)
-    $box.Size = New-Object System.Drawing.Size($w, 26)
-    $box.BackColor = [System.Drawing.Color]::FromArgb(12, 13, 16)
-    $box.ForeColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
-    $box.BorderStyle = 'FixedSingle'
-    $form.Controls.Add($box)
-    return $box
-}
-
-function Add-Number($value, $x, $y, $min, $max) {
-    $num = New-Object System.Windows.Forms.NumericUpDown
-    $num.Minimum = $min
-    $num.Maximum = $max
-    $num.Value = [Math]::Min([Math]::Max([int]$value, $min), $max)
-    $num.Location = New-Object System.Drawing.Point($x, $y)
-    $num.Size = New-Object System.Drawing.Size(110, 26)
-    $num.BackColor = [System.Drawing.Color]::FromArgb(12, 13, 16)
-    $num.ForeColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
-    $form.Controls.Add($num)
-    return $num
-}
-
-function Set-Status($text, $kind = 'info') {
-    $script:status.Text = $text
-    switch ($kind) {
-        'ok' { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(134, 239, 172) }
-        'error' { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113) }
-        default { $script:status.ForeColor = [System.Drawing.Color]::FromArgb(253, 230, 138) }
+function Set-Status {
+    param(
+        [string] $Text,
+        [string] $Kind = 'info'
+    )
+    $status.Text = $Text
+    switch ($Kind) {
+        'ok' {
+            $status.Foreground = New-Brush '#32E6A1'
+            $statusShell.BorderBrush = New-Brush '#1C8D68'
+        }
+        'error' {
+            $status.Foreground = New-Brush '#F87171'
+            $statusShell.BorderBrush = New-Brush '#8E303A'
+        }
+        default {
+            $status.Foreground = New-Brush '#F4D35E'
+            $statusShell.BorderBrush = New-Brush '#384657'
+        }
     }
+}
+
+function Set-ComboSelection($combo, $value) {
+    foreach ($item in $combo.Items) {
+        if ([string]$item.Content -eq [string]$value) {
+            $combo.SelectedItem = $item
+            return
+        }
+    }
+}
+
+foreach ($hotkey in @('关闭', 'F6', 'F7', 'F8', 'F9', 'F10', 'Ctrl+Alt+D')) {
+    $item = New-Object System.Windows.Controls.ComboBoxItem
+    $item.Content = $hotkey
+    [void]$manualHotkey.Items.Add($item)
 }
 
 function Apply-DefaultsToForm {
     $primary.Text = $defaults.primary_league
     $fallback.Text = $defaults.fallback_league
-    $maxFetch.Value = $defaults.max_fetch_results
-    $batch.Value = $defaults.fetch_batch_size
-    $pageSize.Value = $defaults.page_size
-    $timeout.Value = $defaults.result_timeout_seconds
-    $autoClipboard.Checked = [bool]$defaults.auto_clipboard
-    $manualHotkey.SelectedItem = $defaults.manual_hotkey
+    $maxFetch.Text = [string]$defaults.max_fetch_results
+    $batch.Text = [string]$defaults.fetch_batch_size
+    $pageSize.Text = [string]$defaults.page_size
+    $timeout.Text = [string]$defaults.result_timeout_seconds
+    $autoClipboard.IsChecked = [bool]$defaults.auto_clipboard
+    Set-ComboSelection $manualHotkey $defaults.manual_hotkey
+}
+
+function Get-IntInRange {
+    param(
+        [string] $Text,
+        [int] $Default,
+        [int] $Min,
+        [int] $Max
+    )
+    $value = 0
+    if (-not [int]::TryParse($Text, [ref]$value)) {
+        return $Default
+    }
+    if ($value -lt $Min) {
+        return $Min
+    }
+    if ($value -gt $Max) {
+        return $Max
+    }
+    return $value
 }
 
 function Save-SettingsFromForm {
     if ([string]::IsNullOrWhiteSpace($primary.Text)) {
-        Set-Status '主联赛不能为空，已使用默认赛季。' 'error'
+        Set-Status -Text '主联赛不能为空，已使用默认赛季。' -Kind 'error'
         $primary.Text = $defaults.primary_league
         return $false
     }
     if ([string]::IsNullOrWhiteSpace($fallback.Text)) {
         $fallback.Text = $defaults.fallback_league
     }
+
+    $selectedHotkey = if ($manualHotkey.SelectedItem) { [string]$manualHotkey.SelectedItem.Content } else { $defaults.manual_hotkey }
     $config.settings.primary_league = $primary.Text.Trim()
     $config.settings.fallback_league = $fallback.Text.Trim()
-    $config.settings.max_fetch_results = [int]$maxFetch.Value
-    $config.settings.fetch_batch_size = [int]$batch.Value
-    $config.settings.page_size = [int]$pageSize.Value
-    $config.settings.result_timeout_seconds = [int]$timeout.Value
-    $config.settings.auto_clipboard = [bool]$autoClipboard.Checked
-    $config.settings.manual_hotkey = [string]$manualHotkey.SelectedItem
+    $config.settings.max_fetch_results = Get-IntInRange $maxFetch.Text $defaults.max_fetch_results 8 100
+    $config.settings.fetch_batch_size = Get-IntInRange $batch.Text $defaults.fetch_batch_size 1 10
+    $config.settings.page_size = Get-IntInRange $pageSize.Text $defaults.page_size 4 12
+    $config.settings.result_timeout_seconds = Get-IntInRange $timeout.Text $defaults.result_timeout_seconds 5 90
+    $config.settings.auto_clipboard = [bool]$autoClipboard.IsChecked
+    $config.settings.manual_hotkey = $selectedHotkey
     Save-Config $config
-    Set-Status '已保存。运行中的工具会自动读取新设置。' 'ok'
+    Set-Status -Text '已保存。运行中的工具会自动读取新设置。' -Kind 'ok'
     return $true
 }
 
-$title = New-Object System.Windows.Forms.Label
-$title.Text = '客户常用设置'
-$title.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 13, [System.Drawing.FontStyle]::Bold)
-$title.AutoSize = $false
-$title.Location = New-Object System.Drawing.Point(18, 16)
-$title.Size = New-Object System.Drawing.Size(520, 30)
-$title.ForeColor = [System.Drawing.Color]::FromArgb(134, 239, 172)
-$form.Controls.Add($title)
-
-Add-Label '主联赛' 22 64 | Out-Null
-$primary = Add-TextBox $config.settings.primary_league 160 62
-
-Add-Label '备用联赛' 22 102 | Out-Null
-$fallback = Add-TextBox $config.settings.fallback_league 160 100
-
-Add-Label '最多抓取挂单' 22 140 | Out-Null
-$maxFetch = Add-Number $config.settings.max_fetch_results 160 138 8 100
-
-Add-Label '每批 fetch 数' 300 140 | Out-Null
-$batch = Add-Number $config.settings.fetch_batch_size 410 138 1 10
-
-Add-Label '每页显示条数' 22 178 | Out-Null
-$pageSize = Add-Number $config.settings.page_size 160 176 4 12
-
-Add-Label '面板停留秒数' 300 178 | Out-Null
-$timeout = Add-Number $config.settings.result_timeout_seconds 410 176 5 90
-
-$autoClipboard = New-Object System.Windows.Forms.CheckBox
-$autoClipboard.Text = '启用 Ctrl+C 自动查价'
-$autoClipboard.Checked = [bool]$config.settings.auto_clipboard
-$autoClipboard.Location = New-Object System.Drawing.Point(160, 218)
-$autoClipboard.Size = New-Object System.Drawing.Size(260, 28)
-$autoClipboard.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-$form.Controls.Add($autoClipboard)
-
-Add-Label '手动查价热键' 22 256 | Out-Null
-$manualHotkey = New-Object System.Windows.Forms.ComboBox
-$manualHotkey.DropDownStyle = 'DropDownList'
-[void] $manualHotkey.Items.AddRange(@('关闭', 'F6', 'F7', 'F8', 'F9', 'F10', 'Ctrl+Alt+D'))
+$primary.Text = [string]$config.settings.primary_league
+$fallback.Text = [string]$config.settings.fallback_league
+$maxFetch.Text = [string]$config.settings.max_fetch_results
+$batch.Text = [string]$config.settings.fetch_batch_size
+$pageSize.Text = [string]$config.settings.page_size
+$timeout.Text = [string]$config.settings.result_timeout_seconds
+$autoClipboard.IsChecked = [bool]$config.settings.auto_clipboard
 $currentHotkey = [string]$config.settings.manual_hotkey
 if (@('off', 'none', 'disabled') -contains $currentHotkey.Trim().ToLowerInvariant()) {
     $currentHotkey = '关闭'
 }
-if (-not $currentHotkey -or -not $manualHotkey.Items.Contains($currentHotkey)) {
-    $currentHotkey = 'F8'
+if (-not $currentHotkey) {
+    $currentHotkey = $defaults.manual_hotkey
 }
-$manualHotkey.SelectedItem = $currentHotkey
-$manualHotkey.Location = New-Object System.Drawing.Point(160, 254)
-$manualHotkey.Size = New-Object System.Drawing.Size(160, 26)
-$manualHotkey.BackColor = [System.Drawing.Color]::FromArgb(12, 13, 16)
-$manualHotkey.ForeColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
-$form.Controls.Add($manualHotkey)
+Set-ComboSelection $manualHotkey $currentHotkey
+if (-not $manualHotkey.SelectedItem) {
+    Set-ComboSelection $manualHotkey $defaults.manual_hotkey
+}
 
-$hint = New-Object System.Windows.Forms.Label
-$hint.Text = '设置保存后，运行中的工具会在几秒内自动读取。填错赛季时可点“恢复默认”。'
-$hint.AutoSize = $false
-$hint.Location = New-Object System.Drawing.Point(22, 296)
-$hint.Size = New-Object System.Drawing.Size(516, 34)
-$hint.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-$form.Controls.Add($hint)
+$titleBar.add_MouseLeftButtonDown({
+    try {
+        $window.DragMove()
+    } catch {}
+})
 
-$status = New-Object System.Windows.Forms.Label
-$status.Text = ''
-$status.AutoSize = $false
-$status.Location = New-Object System.Drawing.Point(22, 384)
-$status.Size = New-Object System.Drawing.Size(516, 24)
-$status.ForeColor = [System.Drawing.Color]::FromArgb(253, 230, 138)
-$form.Controls.Add($status)
+$closeHandler = {
+    $window.Close()
+}
+$closeButton.add_Click($closeHandler)
+$closeActionButton.add_Click($closeHandler)
 
-$cookie = New-Object System.Windows.Forms.Button
-$cookie.Text = '设置 Cookie'
-$cookie.Location = New-Object System.Drawing.Point(22, 344)
-$cookie.Size = New-Object System.Drawing.Size(110, 30)
-$cookie.Add_Click({
+$cookie.add_Click({
     if (Test-Path -LiteralPath $cookieScript) {
         Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $cookieScript, '-Root', $rootPath)
-    } else {
-        $status.Text = '找不到 Cookie 设置脚本。'
+        Set-Status -Text '已打开 Cookie 设置窗口。'
+        return
     }
+    Set-Status -Text '找不到 Cookie 设置脚本。' -Kind 'error'
 })
-$form.Controls.Add($cookie)
 
-$defaultsButton = New-Object System.Windows.Forms.Button
-$defaultsButton.Text = '恢复默认'
-$defaultsButton.Location = New-Object System.Drawing.Point(148, 344)
-$defaultsButton.Size = New-Object System.Drawing.Size(90, 30)
-$defaultsButton.Add_Click({
+$defaultsButton.add_Click({
     Apply-DefaultsToForm
-    Set-Status '已恢复推荐默认值，点击“保存”后生效。'
+    Set-Status -Text '已恢复推荐默认值，点击“保存”后生效。'
 })
-$form.Controls.Add($defaultsButton)
 
-$folder = New-Object System.Windows.Forms.Button
-$folder.Text = '配置目录'
-$folder.Location = New-Object System.Drawing.Point(248, 344)
-$folder.Size = New-Object System.Drawing.Size(90, 30)
-$folder.Add_Click({
+$folder.add_Click({
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
     Start-Process $configDir
-    Set-Status '已打开配置目录。'
+    Set-Status -Text '已打开配置目录。'
 })
-$form.Controls.Add($folder)
 
-$save = New-Object System.Windows.Forms.Button
-$save.Text = '保存'
-$save.Location = New-Object System.Drawing.Point(348, 344)
-$save.Size = New-Object System.Drawing.Size(90, 30)
-$save.Add_Click({
+$save.add_Click({
     [void](Save-SettingsFromForm)
 })
-$form.Controls.Add($save)
 
-$close = New-Object System.Windows.Forms.Button
-$close.Text = '关闭'
-$close.Location = New-Object System.Drawing.Point(448, 344)
-$close.Size = New-Object System.Drawing.Size(90, 30)
-$close.Add_Click({ $form.Close() })
-$form.Controls.Add($close)
-
-[void] $form.ShowDialog()
+[void] $window.ShowDialog()
