@@ -47,8 +47,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, RegisterHotKey, ReleaseCapture, UnregisterHotKey,
 };
 use windows_sys::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICON_VERSION_4,
-    NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NIN_SELECT,
+    NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu, CreateWindowExW,
@@ -56,12 +56,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWLP_USERDATA, GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW,
     GetWindowRect, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, KillTimer,
     LR_LOADFROMFILE, LoadCursorW, LoadIconW, LoadImageW, MF_SEPARATOR, MF_STRING, MSG,
-    PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW, SWP_SHOWWINDOW,
-    SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE,
-    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE, WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
+    SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
+    WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE,
+    WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT,
+    WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
@@ -2114,9 +2114,9 @@ impl UiState {
         let mut point = POINT { x: 0, y: 0 };
         GetCursorPos(&mut point);
         SetForegroundWindow(self.hwnd);
-        TrackPopupMenu(
+        let command_id = TrackPopupMenu(
             menu,
-            TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+            TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_RETURNCMD,
             point.x,
             point.y,
             0,
@@ -2124,6 +2124,11 @@ impl UiState {
             null(),
         );
         DestroyMenu(menu);
+        PostMessageW(self.hwnd, WM_NULL, 0, 0);
+
+        if command_id != 0 {
+            self.handle_tray_command(command_id as usize);
+        }
     }
 
     unsafe fn handle_tray_command(&mut self, command_id: usize) {
@@ -3291,9 +3296,10 @@ unsafe extern "system" fn wnd_proc(
         }
         msg if msg == WM_TRAYICON => {
             if let Some(state) = state_from_hwnd(hwnd) {
-                match lparam as u32 {
-                    WM_LBUTTONUP => state.show_from_tray(),
-                    WM_RBUTTONUP => state.show_tray_menu(),
+                let tray_event = (lparam & 0xffff) as u32;
+                match tray_event {
+                    WM_LBUTTONUP | NIN_SELECT => state.show_from_tray(),
+                    WM_RBUTTONUP | WM_CONTEXTMENU => state.show_tray_menu(),
                     _ => {}
                 }
             }
