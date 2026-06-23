@@ -43,7 +43,7 @@ function New-IconPngBytes {
     $jade.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
     $jade.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
     $jade.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-    $points = @(
+    $points = [System.Drawing.Point[]]@(
         (New-Object System.Drawing.Point (S 71), (S 145)),
         (New-Object System.Drawing.Point (S 105), (S 111)),
         (New-Object System.Drawing.Point (S 130), (S 136)),
