@@ -53,6 +53,8 @@ $requiredFiles = @(
     '查询历史.bat',
     'SelfCheck.bat',
     '运行自检.bat',
+    'CheckUpdate.bat',
+    '检查更新.bat',
     'Diagnostics.bat',
     'SupportBundle.bat',
     '生成支持包.bat',
@@ -108,6 +110,8 @@ Assert-Ok ($versionText -match 'control_center:\s*ControlCenter\.bat') "VERSION.
 Assert-Ok ($versionText -match 'cookie_zh:\s*设置Cookie\.bat') "VERSION.txt lists Chinese cookie setup"
 Assert-Ok ($versionText -match 'history_zh:\s*查询历史\.bat') "VERSION.txt lists Chinese history"
 Assert-Ok ($versionText -match 'self_check:\s*SelfCheck\.bat') "VERSION.txt lists self-check"
+Assert-Ok ($versionText -match 'update_check:\s*CheckUpdate\.bat') "VERSION.txt lists update check"
+Assert-Ok ($versionText -match 'update_check_zh:\s*检查更新\.bat') "VERSION.txt lists Chinese update check"
 Assert-Ok ($versionText -match 'support_bundle:\s*SupportBundle\.bat') "VERSION.txt lists support bundle"
 Assert-Ok ($versionText -match 'support_bundle_zh:\s*生成支持包\.bat') "VERSION.txt lists Chinese support bundle"
 Assert-Ok ($versionText -match 'reset_data:\s*ResetData\.bat') "VERSION.txt lists reset"
@@ -199,7 +203,10 @@ Assert-Ok ($settingsGui -match 'Apply-DefaultsToForm') "settings can restore def
 Assert-Ok ($settingsGui -match 'Save-SettingsFromForm') "settings validates before saving"
 Assert-Ok ($settingsGui -match 'Start-Process \$configDir') "settings can open config directory"
 
-foreach ($generated in @('selfcheck.txt', 'diagnostics.txt')) {
+$controlCenter = Get-Content -LiteralPath (Join-Path $packageDir 'control_center.ps1') -Raw
+Assert-Ok ($controlCenter -match '--check-update') "control center can run update check"
+
+foreach ($generated in @('selfcheck.txt', 'diagnostics.txt', 'update-check.txt')) {
     Assert-Ok (-not (Test-Path -LiteralPath (Join-Path $packageDir $generated))) "package has no generated $generated"
 }
 Assert-Ok (-not (Get-ChildItem -LiteralPath $packageDir -Filter 'support-bundle-*.zip' -File -ErrorAction SilentlyContinue)) "package has no generated support bundle"
@@ -223,6 +230,8 @@ try {
     Assert-Ok ($selfCheck -match '开始使用\.bat:\s*ok') "self-check verifies Chinese StartHere"
     Assert-Ok ($selfCheck -match 'control_center\.ps1:\s*ok') "self-check verifies control center"
     Assert-Ok ($selfCheck -match '查询历史\.bat:\s*ok') "self-check verifies Chinese history"
+    Assert-Ok ($selfCheck -match 'CheckUpdate\.bat:\s*ok') "self-check verifies update check"
+    Assert-Ok ($selfCheck -match '检查更新\.bat:\s*ok') "self-check verifies Chinese update check"
     Assert-Ok ($selfCheck -match 'SupportBundle\.bat:\s*ok') "self-check verifies support bundle"
     Assert-Ok ($selfCheck -match '生成支持包\.bat:\s*ok') "self-check verifies Chinese support bundle"
     Assert-Ok ($selfCheck -match 'ResetData\.bat:\s*ok') "self-check verifies reset"

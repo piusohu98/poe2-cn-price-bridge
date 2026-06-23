@@ -74,6 +74,8 @@ settings_zh: 常用设置.bat
 cookie_zh: 设置Cookie.bat
 history_zh: 查询历史.bat
 self_check: SelfCheck.bat
+update_check: CheckUpdate.bat
+update_check_zh: 检查更新.bat
 diagnostics: Diagnostics.bat
 support_bundle: SupportBundle.bat
 support_bundle_zh: 生成支持包.bat
@@ -165,6 +167,15 @@ echo Self-check exported to "%~dp0selfcheck.txt"
 pause
 '@
 
+Set-Content -LiteralPath (Join-Path $packageDir 'CheckUpdate.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+"%~dp0QingPricePOE2.exe" --check-update "%~dp0update-check.txt"
+echo.
+echo Update check exported to "%~dp0update-check.txt"
+pause
+'@
+
 Set-Content -LiteralPath (Join-Path $packageDir 'History.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
@@ -211,6 +222,12 @@ Set-Content -LiteralPath (Join-Path $packageDir '运行自检.bat') -Encoding AS
 @echo off
 cd /d "%~dp0"
 call "%~dp0SelfCheck.bat"
+'@
+
+Set-Content -LiteralPath (Join-Path $packageDir '检查更新.bat') -Encoding ASCII -Value @'
+@echo off
+cd /d "%~dp0"
+call "%~dp0CheckUpdate.bat"
 '@
 
 Set-Content -LiteralPath (Join-Path $packageDir '生成支持包.bat') -Encoding ASCII -Value @'

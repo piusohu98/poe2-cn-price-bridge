@@ -69,6 +69,9 @@ const APP_DISPLAY_NAME: &str = "清价 POE2 国服查价";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const USER_AGENT: &str = concat!("QingPricePOE2/", env!("CARGO_PKG_VERSION"));
 const TRADE_HOME: &str = "https://poe.game.qq.com/trade2";
+const RELEASE_API: &str =
+    "https://api.github.com/repos/zijinan/poe2-cn-price-bridge/releases/latest";
+const RELEASE_PAGE: &str = "https://github.com/zijinan/poe2-cn-price-bridge/releases/latest";
 const DEFAULT_PRIMARY_LEAGUE: &str = "奥杜尔秘符";
 const DEFAULT_FALLBACK_LEAGUE: &str = "永久";
 const REALM: &str = "poe2";
@@ -100,8 +103,9 @@ const IDM_HISTORY: usize = 1007;
 const IDM_TRADE_HOME: usize = 1008;
 const IDM_DIAGNOSTICS: usize = 1009;
 const IDM_SELF_CHECK: usize = 1010;
-const IDM_ABOUT: usize = 1011;
-const IDM_QUIT: usize = 1012;
+const IDM_UPDATE_CHECK: usize = 1011;
+const IDM_ABOUT: usize = 1012;
+const IDM_QUIT: usize = 1013;
 
 fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain(Some(0)).collect()
@@ -529,6 +533,14 @@ fn self_check_path() -> PathBuf {
     app_dir().join(format!("selfcheck-{unix}.txt"))
 }
 
+fn update_check_path() -> PathBuf {
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs();
+    app_dir().join(format!("update-check-{unix}.txt"))
+}
+
 fn crash_report_path() -> PathBuf {
     let unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -641,6 +653,135 @@ fn check_trade_home_network() -> String {
     }
 }
 
+#[derive(Debug)]
+struct UpdateInfo {
+    latest_tag: String,
+    latest_name: String,
+    release_url: String,
+    assets: Vec<String>,
+}
+
+fn version_numbers(value: &str) -> Vec<u64> {
+    let mut numbers = Vec::new();
+    let mut current = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_digit() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            numbers.push(current.parse::<u64>().unwrap_or(0));
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        numbers.push(current.parse::<u64>().unwrap_or(0));
+    }
+    while numbers.len() < 3 {
+        numbers.push(0);
+    }
+    numbers.truncate(3);
+    numbers
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    version_numbers(latest) > version_numbers(current)
+}
+
+fn latest_release_info() -> Result<UpdateInfo> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent(USER_AGENT)
+        .build()
+        .context("创建 HTTP 客户端失败")?;
+    let data = client
+        .get(RELEASE_API)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .context("访问 GitHub Release API 失败")?;
+    let status = data.status();
+    let body = data.text().context("读取 GitHub 返回失败")?;
+    if !status.is_success() {
+        bail!("GitHub 返回 HTTP {}: {}", status.as_u16(), body);
+    }
+    let data: Value = serde_json::from_str(&body).context("GitHub 返回不是 JSON")?;
+    let latest_tag = data
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .filter(|tag| !tag.trim().is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+    let latest_name = data
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(&latest_tag)
+        .to_string();
+    let release_url = data
+        .get("html_url")
+        .and_then(Value::as_str)
+        .unwrap_or(RELEASE_PAGE)
+        .to_string();
+    let assets = data
+        .get("assets")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("name").and_then(Value::as_str))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok(UpdateInfo {
+        latest_tag,
+        latest_name,
+        release_url,
+        assets,
+    })
+}
+
+fn update_check_report() -> String {
+    match latest_release_info() {
+        Ok(info) => {
+            let status = if is_newer_version(&info.latest_tag, APP_VERSION) {
+                "update_available"
+            } else {
+                "up_to_date"
+            };
+            let asset_text = if info.assets.is_empty() {
+                "(no assets listed)".to_string()
+            } else {
+                info.assets.join("\n")
+            };
+            format!(
+                "{APP_DISPLAY_NAME} update check\n\
+                 status: {status}\n\
+                 current_version: v{APP_VERSION}\n\
+                 latest_tag: {}\n\
+                 latest_name: {}\n\
+                 release_url: {}\n\
+                 \n--- assets ---\n{}\n\
+                 \n说明: 这是手动检查更新，不会自动下载或自动替换本机文件。\n",
+                info.latest_tag, info.latest_name, info.release_url, asset_text
+            )
+        }
+        Err(err) => format!(
+            "{APP_DISPLAY_NAME} update check\n\
+             status: failed\n\
+             current_version: v{APP_VERSION}\n\
+             release_url: {RELEASE_PAGE}\n\
+             error: {err:#}\n\
+             \n说明: GitHub API 偶尔会因为网络、TLS 握手、地区链路或限流失败；普通客户检查更新不需要授权。可以稍后重试，或直接打开 release_url 查看。\n"
+        ),
+    }
+}
+
+fn write_update_check(target: Option<PathBuf>) -> Result<PathBuf> {
+    fs::create_dir_all(app_dir())?;
+    let path = target.unwrap_or_else(update_check_path);
+    fs::write(&path, update_check_report())?;
+    log(format!("已导出更新检查: {}", path.display()));
+    Ok(path)
+}
+
 fn cookie_self_check(cookie_saved: bool) -> String {
     if !cookie_saved {
         return "missing: 尚未保存 Cookie".to_string();
@@ -679,6 +820,8 @@ fn write_self_check(target: Option<PathBuf>) -> Result<PathBuf> {
         "查询历史.bat",
         "SelfCheck.bat",
         "运行自检.bat",
+        "CheckUpdate.bat",
+        "检查更新.bat",
         "Diagnostics.bat",
         "SupportBundle.bat",
         "生成支持包.bat",
@@ -2101,6 +2244,7 @@ impl UiState {
             wide("打开国服市集"),
             wide("运行自检"),
             wide("导出诊断"),
+            wide("检查更新"),
             wide("关于"),
             wide("退出"),
         ];
@@ -2115,9 +2259,10 @@ impl UiState {
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         AppendMenuW(menu, MF_STRING, IDM_SELF_CHECK, labels[8].as_ptr());
         AppendMenuW(menu, MF_STRING, IDM_DIAGNOSTICS, labels[9].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_ABOUT, labels[10].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_UPDATE_CHECK, labels[10].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_ABOUT, labels[11].as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
-        AppendMenuW(menu, MF_STRING, IDM_QUIT, labels[11].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_QUIT, labels[12].as_ptr());
 
         let mut point = POINT { x: 0, y: 0 };
         GetCursorPos(&mut point);
@@ -2151,6 +2296,7 @@ impl UiState {
             IDM_TRADE_HOME => open_url(TRADE_HOME),
             IDM_SELF_CHECK => self.export_self_check(),
             IDM_DIAGNOSTICS => self.export_diagnostics(),
+            IDM_UPDATE_CHECK => self.export_update_check(),
             IDM_ABOUT => self.show_about(),
             IDM_QUIT => {
                 DestroyWindow(self.hwnd);
@@ -2753,6 +2899,19 @@ impl UiState {
             }
             Err(err) => {
                 self.view.status = format!("运行自检失败: {err}");
+            }
+        }
+        InvalidateRect(self.hwnd, null(), 1);
+    }
+
+    unsafe fn export_update_check(&mut self) {
+        match write_update_check(None) {
+            Ok(path) => {
+                self.view.status = format!("更新检查已导出: {}", path.display());
+                open_path(&path);
+            }
+            Err(err) => {
+                self.view.status = format!("检查更新失败: {err}");
             }
         }
         InvalidateRect(self.hwnd, null(), 1);
@@ -3949,6 +4108,7 @@ fn print_usage() {
     println!("  --validate-cookie 验证已保存 Cookie");
     println!("  --diagnostics [PATH] 导出诊断文件");
     println!("  --self-check [PATH] 导出客户自检报告");
+    println!("  --check-update [PATH] 检查 GitHub Release 最新版本");
 }
 
 fn main() -> Result<()> {
@@ -4000,6 +4160,15 @@ fn main() -> Result<()> {
         println!("自检报告已导出: {}", path.display());
         return Ok(());
     }
+    if let Some(index) = args.iter().position(|arg| arg == "--check-update") {
+        let target = args
+            .get(index + 1)
+            .filter(|value| !value.starts_with('-'))
+            .map(PathBuf::from);
+        let path = write_update_check(target)?;
+        println!("更新检查已导出: {}", path.display());
+        return Ok(());
+    }
     let Some(instance_mutex) = claim_single_instance()? else {
         activate_existing_window_retry();
         println!("{APP_DISPLAY_NAME} 已在运行，已唤出原窗口。");
@@ -4043,6 +4212,14 @@ mod tests {
         assert_eq!(normalize_manual_hotkey("mouse4"), "F8");
         assert_eq!(normalize_manual_hotkey("off"), "关闭");
         assert_eq!(normalize_manual_hotkey("关闭"), "关闭");
+    }
+
+    #[test]
+    fn compares_release_versions_numerically() {
+        assert!(is_newer_version("v0.10.0", "0.2.0"));
+        assert!(is_newer_version("v1.0.0", "0.99.9"));
+        assert!(!is_newer_version("v0.2.0", "0.2.0"));
+        assert!(!is_newer_version("v0.1.9", "0.2.0"));
     }
 
     #[test]

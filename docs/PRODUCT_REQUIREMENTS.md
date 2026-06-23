@@ -7,15 +7,16 @@
 ## 当前核心流程
 
 1. 客户下载 `QingPricePOE2-v*-windows-x64.zip`。
-2. 解压后运行 `StartHere.bat` 打开控制中心，再按向导完成登录、保存 Cookie、验证 Cookie 和启动。
-3. 如需单独重设 Cookie，运行 `SetCookie.bat`，窗口可识别剪贴板里的 POESESSID，保存后自动验证。
-4. 如需调整赛季、抓取数量、自动查价，运行 `Settings.bat`。
-5. 运行 `Start.bat` 或 `QingPricePOE2.exe`。
-5. 工具常驻系统托盘，无黑色后台窗口。
-6. 游戏里悬停物品并按 `Ctrl+C`。
-7. 工具自动读取剪贴板、请求国服 trade2、显示价格面板。
-8. 出问题时先运行 `SupportBundle.bat` 生成支持包；也可单独运行 `SelfCheck.bat`、`Diagnostics.bat` 或托盘右键 `导出诊断`。
-9. 需要回看问题时运行 `History.bat` 或托盘右键 `查询历史`。
+2. 解压后运行 `开始使用.bat` 打开控制中心，再按向导完成登录、保存 Cookie、验证 Cookie 和启动。
+3. 如需单独重设 Cookie，运行 `设置Cookie.bat`，窗口可识别剪贴板里的 POESESSID，保存后自动验证。
+4. 如需调整赛季、抓取数量、自动查价，运行 `常用设置.bat`。
+5. 运行 `启动查价.bat` 或 `QingPricePOE2.exe`。
+6. 工具常驻系统托盘，无黑色后台窗口。
+7. 游戏里悬停物品并按 `Ctrl+C`。
+8. 工具自动读取剪贴板、请求国服 trade2、显示价格面板。
+9. 需要回看问题时运行 `查询历史.bat` 或托盘右键 `查询历史`。
+10. 需要确认版本时运行 `检查更新.bat` 或托盘右键 `检查更新`。
+11. 出问题时先运行 `生成支持包.bat` 生成支持包；也可单独运行 `运行自检.bat`、`Diagnostics.bat` 或托盘右键 `导出诊断`。
 
 ## 客户版必须满足
 
@@ -27,6 +28,7 @@
 - 可排障：能导出不含明文 Cookie 的诊断文件。
 - 可反馈：能一键生成支持包，包含自检、诊断、版本和支持说明。
 - 可自检：客户能一键检查发布包文件、Cookie 状态、官网网络和关键设置。
+- 可更新判断：客户能手动检查 GitHub Release 最新版本，失败时明确说明网络原因和不需要授权。
 - 可追踪崩溃：异常退出时留下不含明文 Cookie 的崩溃报告。
 - 可回溯：能查看最近查询历史，定位是解析、认证、请求还是结果为空。
 - 可恢复：Cookie 过期时提示用户重新设置，而不是只显示接口错误。
@@ -49,6 +51,7 @@
 - 结果展示：最低价、挂单数、常见价格、分页表格、官方市集链接。
 - 查询历史：保留最近查询摘要、错误信息、价格和官方链接，不保存 Cookie。
 - 错误分类：认证、网络、限流、官方接口异常、属性库异常、查询条件不可用、明细读取失败都要分开提示。
+- 更新检查：只读 GitHub Release latest，不自动下载、不自动替换文件。
 
 ## 生产级后续优先级
 
@@ -64,12 +67,12 @@
 
 - 更完整的首次使用向导：登录页、Cookie 获取步骤图、保存后自动验证。
 - 查询历史增强：筛选、搜索、复制完整错误上下文。
-- 发布包签名或至少提供 SHA256 校验。
-- 更品牌化的原生设置窗口，减少 PowerShell WinForms 的系统感。
+- 发布包签名；当前至少提供 SHA256 校验。
+- 更品牌化的原生设置窗口；当前 WPF 客户窗口已移除 WinForms 系统感。
 
 ### P2
 
-- 自动更新检查。
+- 自动更新检查和下载仍不做静默执行；当前仅提供手动检查更新。
 - 更现代的设置 UI 框架，例如 egui/Tauri；保留轻量 overlay。
 - 国际化文案分离。
 - 自动上传匿名错误摘要需用户明确同意。
@@ -88,5 +91,6 @@
 - `tools/package_release.ps1` 生成 zip。
 - 发布包 exe 可启动，重复启动仍只有一个进程。
 - `--diagnostics` 生成诊断文件，且不包含明文 Cookie。
+- `--check-update` 生成更新检查报告，网络失败时不泄露 Cookie 且说明不需要授权。
 - Cookie 失效、网络失败、筛选过严时，面板有明确错误类型和可点击处理按钮。
-- 发布包包含 `QingPricePOE2.exe`、`StartHere.bat`、`ControlCenter.bat`、`control_center.ps1`、`FirstRun.bat`、`Start.bat`、`SetCookie.bat`、`ValidateCookie.bat`、`Settings.bat`、`History.bat`、`SelfCheck.bat`、`Diagnostics.bat`、`SupportBundle.bat`、`SupportBundle.ps1`、`ResetData.bat`、`ResetData.ps1`、`Uninstall.bat`、`Uninstall.ps1`、`InstallShortcut.bat`、`ClearCookie.bat`、README、CHANGELOG、SUPPORT、VERSION、LICENSE、图标资源。
+- 发布包包含 `QingPricePOE2.exe`、`StartHere.bat`、`开始使用.bat`、`ControlCenter.bat`、`control_center.ps1`、`FirstRun.bat`、`首次向导.bat`、`Start.bat`、`启动查价.bat`、`SetCookie.bat`、`设置Cookie.bat`、`ValidateCookie.bat`、`Settings.bat`、`常用设置.bat`、`History.bat`、`查询历史.bat`、`SelfCheck.bat`、`运行自检.bat`、`CheckUpdate.bat`、`检查更新.bat`、`Diagnostics.bat`、`SupportBundle.bat`、`生成支持包.bat`、`SupportBundle.ps1`、`ResetData.bat`、`ResetData.ps1`、`Uninstall.bat`、`Uninstall.ps1`、`InstallShortcut.bat`、`ClearCookie.bat`、README、CHANGELOG、SUPPORT、VERSION、LICENSE、图标资源。

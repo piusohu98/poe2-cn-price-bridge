@@ -349,6 +349,10 @@ New-ActionButton '导出诊断' {
     Run-ExeCommand '--diagnostics' 'diagnostics.txt'
 }
 
+New-ActionButton '检查更新' {
+    Run-ExeCommand '--check-update' 'update-check.txt'
+}
+
 New-ActionButton '验证 Cookie' {
     if (-not (Test-Path -LiteralPath $exe)) {
         Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'

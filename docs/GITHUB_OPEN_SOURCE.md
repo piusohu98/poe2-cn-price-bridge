@@ -50,6 +50,7 @@ git push origin v0.2.0
 - 错误页上的错误类型。
 - `SelfCheck.bat` 生成的 `selfcheck.txt`。
 - `Diagnostics.bat` 生成的 `diagnostics.txt`。
+- `检查更新.bat` 生成的 `update-check.txt`。
 - 或直接提供 `SupportBundle.bat` 生成的 `support-bundle-*.zip`。
 
 提醒用户不要发送明文 Cookie、POESESSID、手机号、QQ 号或支付信息。
@@ -59,4 +60,4 @@ git push origin v0.2.0
 - 每次改功能后先跑 `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test` 和 `cargo build --release`。
 - 发包前跑 `tools/package_release.ps1`、`tools/verify_release.ps1` 和 `tools/verify_release.ps1 -RunLaunchSmoke`，并从 zip 解压目录启动一次。
 - 客户包只从 `dist/*.zip` 分发，不直接发 `target/release` 里的 exe。
-- GitHub Release 描述里写清楚新增功能、修复问题和是否需要重新设置 Cookie。
+- GitHub Release 描述里写清楚新增功能、修复问题、是否需要重新设置 Cookie，以及 `检查更新.bat` 是否能识别到新版本。
