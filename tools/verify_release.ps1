@@ -133,6 +133,19 @@ if ($parseErrorsFound.Count -gt 0) {
 }
 Assert-Ok ($parseErrorsFound.Count -eq 0) "package PowerShell scripts parse"
 
+$customerUiScripts = @(
+    'control_center.ps1',
+    'first_run_wizard.ps1',
+    'set_cookie_gui.ps1',
+    'settings_gui.ps1',
+    'history_gui.ps1'
+)
+foreach ($uiScript in $customerUiScripts) {
+    $uiText = Get-Content -LiteralPath (Join-Path $packageDir $uiScript) -Raw
+    Assert-Ok ($uiText -match 'PresentationFramework') "$uiScript uses WPF"
+    Assert-Ok (-not ($uiText -match 'System\.Windows\.Forms|DataGridView|FormBorderStyle|ClientSize')) "$uiScript does not use legacy WinForms UI"
+}
+
 $cookieGui = Get-Content -LiteralPath (Join-Path $packageDir 'set_cookie_gui.ps1') -Raw
 Assert-Ok ($cookieGui -match 'Test-CookieInput') "cookie setup has clipboard detection"
 Assert-Ok ($cookieGui -match 'Add_Shown|add_ContentRendered|Add_ContentRendered') "cookie setup checks clipboard on open"
