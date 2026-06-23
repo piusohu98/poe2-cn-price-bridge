@@ -1,0 +1,60 @@
+name: Bug report
+description: 反馈查价、Cookie、UI 或发布包问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请不要粘贴明文 POESESSID、完整 Cookie、手机号、QQ 号或支付信息。
+  - type: input
+    id: version
+    attributes:
+      label: 工具版本
+      description: 例如 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      description: 例如 Windows 11 23H2
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题类型
+      options:
+        - 查价结果
+        - Cookie/登录
+        - 游戏内面板
+        - 设置/热键
+        - 发布包/启动
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 写清楚你做了什么、看到什么、期望什么。
+    validations:
+      required: true
+  - type: textarea
+    id: item
+    attributes:
+      label: 物品类型
+      description: 例如通货、暗金、稀有装备。不要附带个人账号信息。
+  - type: textarea
+    id: selfcheck
+    attributes:
+      label: SelfCheck 摘要
+      description: 可粘贴 selfcheck.txt 中不含隐私的关键几行，或说明已上传附件。
+      render: text
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics 摘要
+      description: 必要时提供 diagnostics.txt 中不含隐私的关键几行。
+      render: text

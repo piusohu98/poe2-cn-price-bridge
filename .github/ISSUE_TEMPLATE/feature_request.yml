@@ -1,0 +1,34 @@
+name: Feature request
+description: 建议新功能或体验优化
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题
+      description: 这个功能想解决什么实际使用痛点？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 希望怎么做
+      description: 描述你希望的按钮、面板、查价逻辑或发布体验。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 功能区域
+      options:
+        - 游戏内面板
+        - 查价请求
+        - Cookie/登录
+        - 控制中心
+        - 设置/热键
+        - 发布包/安装
+        - 开源维护
+        - 其他
+    validations:
+      required: true

@@ -1,0 +1,33 @@
+[package]
+name = "poe2_cn_price_bridge"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+description = "POE2 CN in-game price checker overlay"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0"
+arboard = "3.6"
+base64 = "0.22"
+dirs = "6.0"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
+rpassword = "7.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+urlencoding = "2.1"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security_Cryptography",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging"
+] }
+
+[build-dependencies]
+winresource = "0.1"

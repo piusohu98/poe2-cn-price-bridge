@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 隐私或 Cookie 泄露问题
+    url: https://github.com/
+    about: 不要公开贴明文 Cookie。请先阅读 SECURITY.md。
