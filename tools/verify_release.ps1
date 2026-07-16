@@ -17,6 +17,17 @@ function Assert-Ok {
     Write-Host "[ok] $Message"
 }
 
+# 等待 Windows GUI 子系统程序完成，避免 PowerShell 5.1 在产物落盘前继续执行。
+function Invoke-BridgeCommand {
+    param(
+        [string] $FilePath,
+        [string[]] $Arguments
+    )
+    $quotedArguments = @($Arguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' })
+    $process = Start-Process -FilePath $FilePath -ArgumentList $quotedArguments -Wait -PassThru
+    return $process.ExitCode
+}
+
 $cargoToml = Get-Content -LiteralPath (Join-Path $rootPath 'Cargo.toml') -Raw
 if ($cargoToml -notmatch 'version\s*=\s*"([^"]+)"') {
     throw 'Cannot read version from Cargo.toml'
@@ -197,6 +208,10 @@ Assert-Ok ($cookieGui -match 'Test-CookieInput') "cookie setup has clipboard det
 Assert-Ok ($cookieGui -match 'Add_Shown|add_ContentRendered|Add_ContentRendered') "cookie setup checks clipboard on open"
 Assert-Ok ($cookieGui -match '--validate-cookie') "cookie setup can validate existing cookie"
 Assert-Ok ($cookieGui -match 'Save-And-ValidateCookie') "cookie setup saves and validates"
+Assert-Ok ($cookieGui -match 'finally\s*\{[\s\S]*Remove-Item -LiteralPath \$tmp') "cookie setup always removes plaintext temp file"
+
+$firstRunWizard = Get-Content -LiteralPath (Join-Path $packageDir 'first_run_wizard.ps1') -Raw
+Assert-Ok ($firstRunWizard -match 'finally\s*\{[\s\S]*Remove-Item -LiteralPath \$tmp') "first-run wizard always removes plaintext temp file"
 
 $settingsGui = Get-Content -LiteralPath (Join-Path $packageDir 'settings_gui.ps1') -Raw
 Assert-Ok ($settingsGui -match 'Apply-DefaultsToForm') "settings can restore defaults"
@@ -218,9 +233,9 @@ try {
     $env:APPDATA = Join-Path $tempRoot 'appdata'
     New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
     $selfCheckPath = Join-Path $tempRoot 'selfcheck.txt'
-    & $exePath --self-check $selfCheckPath | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "--self-check failed with exit code $LASTEXITCODE"
+    $exitCode = Invoke-BridgeCommand -FilePath $exePath -Arguments @('--self-check', $selfCheckPath)
+    if ($exitCode -ne 0) {
+        throw "--self-check failed with exit code $exitCode"
     }
     Assert-Ok (Test-Path -LiteralPath $selfCheckPath) "self-check report is generated"
     $selfCheck = Get-Content -LiteralPath $selfCheckPath -Raw -Encoding UTF8
@@ -237,6 +252,50 @@ try {
     Assert-Ok ($selfCheck -match 'ResetData\.bat:\s*ok') "self-check verifies reset"
     Assert-Ok ($selfCheck -match 'Uninstall\.bat:\s*ok') "self-check verifies uninstall"
     Assert-Ok ($selfCheck -match 'SUPPORT\.md:\s*ok') "self-check verifies support guide"
+
+    $syntheticSecret = ('SYNTHETIC_' + 'POESESSID_' + '7f3a91d2')
+    $secretInput = Join-Path $tempRoot 'synthetic-cookie.txt'
+    try {
+        [System.IO.File]::WriteAllText($secretInput, $syntheticSecret, [System.Text.UTF8Encoding]::new($false))
+        $exitCode = Invoke-BridgeCommand -FilePath $exePath -Arguments @('--set-cookie-file', $secretInput)
+        if ($exitCode -ne 0) {
+            throw "--set-cookie-file failed with exit code $exitCode"
+        }
+    } finally {
+        Remove-Item -LiteralPath $secretInput -Force -ErrorAction SilentlyContinue
+    }
+
+    $appRoot = Join-Path $env:APPDATA 'poe2_cn_price_bridge'
+    $logsDir = Join-Path $appRoot 'logs'
+    $crashesDir = Join-Path $appRoot 'crashes'
+    New-Item -ItemType Directory -Force -Path $logsDir, $crashesDir | Out-Null
+    $syntheticPayload = "POESESSID=$syntheticSecret`r`nCookie: foo=bar; POESESSID=$syntheticSecret`r`n{`"POESESSID`":`"$syntheticSecret`"}`r`nknown=$syntheticSecret"
+    [System.IO.File]::WriteAllText((Join-Path $logsDir 'app.log'), $syntheticPayload, [System.Text.UTF8Encoding]::new($false))
+    $historyLine = "{`"ts`":1,`"status`":`"error`",`"item`":`"test`",`"base_type`":`"test`",`"rarity`":`"rare`",`"league`":null,`"total`":null,`"priced`":null,`"message`":`"Cookie: POESESSID=$syntheticSecret`",`"url`":null,`"used_mods`":false,`"used_values`":false}"
+    [System.IO.File]::WriteAllText((Join-Path $appRoot 'history.jsonl'), $historyLine, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $crashesDir 'crash-synthetic.txt'), $syntheticPayload, [System.Text.UTF8Encoding]::new($false))
+
+    $redactionProbe = Join-Path $tempRoot 'redaction-probe.txt'
+    [System.IO.File]::WriteAllText($redactionProbe, $syntheticPayload, [System.Text.UTF8Encoding]::new($false))
+    $exitCode = Invoke-BridgeCommand -FilePath $exePath -Arguments @('--redact-file', $redactionProbe)
+    if ($exitCode -ne 0) {
+        throw "--redact-file failed with exit code $exitCode"
+    }
+    Assert-Ok (-not ((Get-Content -LiteralPath $redactionProbe -Raw -Encoding UTF8).Contains($syntheticSecret))) "redaction removes header, JSON, keyed and known secret formats"
+
+    $secretSelfCheckPath = Join-Path $tempRoot 'selfcheck-with-secret.txt'
+    $exitCode = Invoke-BridgeCommand -FilePath $exePath -Arguments @('--self-check', $secretSelfCheckPath)
+    if ($exitCode -ne 0) {
+        throw "secret --self-check failed with exit code $exitCode"
+    }
+    Assert-Ok (-not ((Get-Content -LiteralPath $secretSelfCheckPath -Raw -Encoding UTF8).Contains($syntheticSecret))) "self-check redacts synthetic secret"
+
+    $diagnosticsPath = Join-Path $tempRoot 'diagnostics-with-secret.txt'
+    $exitCode = Invoke-BridgeCommand -FilePath $exePath -Arguments @('--diagnostics', $diagnosticsPath)
+    if ($exitCode -ne 0) {
+        throw "--diagnostics failed with exit code $exitCode"
+    }
+    Assert-Ok (-not ((Get-Content -LiteralPath $diagnosticsPath -Raw -Encoding UTF8).Contains($syntheticSecret))) "diagnostics redacts synthetic secret"
 
     $supportScript = Join-Path $packageDir 'SupportBundle.ps1'
     $supportParseTokens = $null
@@ -259,12 +318,16 @@ try {
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'update-check.txt')) "support bundle contains update check"
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'VERSION.txt')) "support bundle contains version"
     Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'SUPPORT.md')) "support bundle contains support guide"
+    Assert-Ok (Test-Path -LiteralPath (Join-Path $supportExtract 'crashes\crash-synthetic.txt')) "support bundle contains synthetic crash report"
     $supportLeak = @(Get-ChildItem -LiteralPath $supportExtract -Recurse -File |
         Select-String -Pattern 'POESESSID\s*=\s*[A-Za-z0-9_%\-]{8,}|Cookie:\s*[^\r\n]*POESESSID\s*=' -CaseSensitive:$false)
     if ($supportLeak.Count -gt 0) {
         $supportLeak | ForEach-Object { Write-Host "[error] possible secret in $($_.Path):$($_.LineNumber)" }
     }
     Assert-Ok ($supportLeak.Count -eq 0) "support bundle does not expose plain cookie"
+    $syntheticLeaks = @(Get-ChildItem -LiteralPath $supportExtract -Recurse -File |
+        Select-String -SimpleMatch $syntheticSecret)
+    Assert-Ok ($syntheticLeaks.Count -eq 0) "support bundle contains no synthetic secret"
 } finally {
     $env:APPDATA = $oldAppData
     Get-ChildItem -LiteralPath $packageDir -Filter 'support-bundle-*.zip' -File -ErrorAction SilentlyContinue |

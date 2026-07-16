@@ -69,6 +69,8 @@ const APP_DISPLAY_NAME: &str = "清价 POE2 国服查价";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const USER_AGENT: &str = concat!("QingPricePOE2/", env!("CARGO_PKG_VERSION"));
 const TRADE_HOME: &str = "https://poe.game.qq.com/trade2";
+const TRADE_API_ROOT: &str = "https://poe.game.qq.com/api/trade2";
+const REDACTED_SECRET: &str = "[REDACTED]";
 const RELEASE_API: &str =
     "https://api.github.com/repos/zijinan/poe2-cn-price-bridge/releases/latest";
 const RELEASE_PAGE: &str = "https://github.com/zijinan/poe2-cn-price-bridge/releases/latest";
@@ -196,8 +198,122 @@ fn last_win_error(prefix: &str) -> anyhow::Error {
     anyhow!("{prefix}: Windows error {}", unsafe { GetLastError() })
 }
 
+/// 从已保存的 Cookie 中提取 POESESSID，供运行时直接值脱敏使用。
+fn known_poesessid_value(cookie: &str) -> Option<&str> {
+    cookie.split(';').find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        if name.trim().eq_ignore_ascii_case("POESESSID") && !value.trim().is_empty() {
+            Some(value.trim())
+        } else {
+            None
+        }
+    })
+}
+
+/// 按 ASCII 键名脱敏后续值，兼容请求头、普通键值和 JSON 键值格式。
+fn redact_keyed_values(text: &str, key: &str, redact_to_line_end: bool) -> String {
+    let mut output = text.to_string();
+    let key_lower = key.to_ascii_lowercase();
+    let mut search_from = 0;
+
+    loop {
+        let lower = output.to_ascii_lowercase();
+        let Some(relative) = lower[search_from..].find(&key_lower) else {
+            break;
+        };
+        let key_start = search_from + relative;
+        let key_end = key_start + key.len();
+        let bytes = output.as_bytes();
+        let has_word_prefix = key_start > 0
+            && (bytes[key_start - 1].is_ascii_alphanumeric() || bytes[key_start - 1] == b'_');
+        if has_word_prefix {
+            search_from = key_end;
+            continue;
+        }
+
+        let mut cursor = key_end;
+        while cursor < bytes.len()
+            && (bytes[cursor].is_ascii_whitespace()
+                || bytes[cursor] == b'\''
+                || bytes[cursor] == b'"')
+        {
+            cursor += 1;
+        }
+        if cursor >= bytes.len() || !matches!(bytes[cursor], b':' | b'=') {
+            search_from = key_end;
+            continue;
+        }
+        cursor += 1;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+
+        let quote = if cursor < bytes.len() && matches!(bytes[cursor], b'\'' | b'"') {
+            let quote = bytes[cursor];
+            cursor += 1;
+            Some(quote)
+        } else {
+            None
+        };
+        let value_start = cursor;
+        let value_end = if let Some(quote) = quote {
+            bytes[value_start..]
+                .iter()
+                .position(|byte| *byte == quote)
+                .map(|offset| value_start + offset)
+                .unwrap_or(bytes.len())
+        } else if redact_to_line_end {
+            bytes[value_start..]
+                .iter()
+                .position(|byte| matches!(*byte, b'\r' | b'\n'))
+                .map(|offset| value_start + offset)
+                .unwrap_or(bytes.len())
+        } else {
+            bytes[value_start..]
+                .iter()
+                .position(|byte| byte.is_ascii_whitespace() || matches!(*byte, b';' | b',' | b'}'))
+                .map(|offset| value_start + offset)
+                .unwrap_or(bytes.len())
+        };
+
+        if value_end <= value_start {
+            search_from = key_end;
+            continue;
+        }
+        output.replace_range(value_start..value_end, REDACTED_SECRET);
+        search_from = value_start + REDACTED_SECRET.len();
+    }
+
+    output
+}
+
+/// 统一脱敏 Cookie 请求头、POESESSID 键值和运行时已知的真实 Secret。
+fn redact_sensitive_text(text: &str, known_cookie: Option<&str>) -> String {
+    let mut output = text.to_string();
+    if let Some(cookie) = known_cookie
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        output = output.replace(cookie, REDACTED_SECRET);
+        if let Some(value) = known_poesessid_value(cookie) {
+            output = output.replace(value, REDACTED_SECRET);
+        } else if !cookie.contains('=') && !cookie.contains(';') && !cookie.contains(':') {
+            output = output.replace(cookie, REDACTED_SECRET);
+        }
+    }
+    output = redact_keyed_values(&output, "POESESSID", false);
+    redact_keyed_values(&output, "Cookie", true)
+}
+
+/// 使用当前 Windows 用户已保存的 Cookie 对文本执行运行时脱敏。
+fn redact_runtime_text(text: &str) -> String {
+    let cookie = load_cookie().ok().flatten();
+    redact_sensitive_text(text, cookie.as_deref())
+}
+
 fn log(message: impl AsRef<str>) {
-    let line = format!("[{}] {}", chrono_like_time(), message.as_ref());
+    let message = redact_runtime_text(message.as_ref());
+    let line = format!("[{}] {message}", chrono_like_time());
     println!("{line}");
     if let Err(err) = append_log_line(&line) {
         eprintln!("写入日志失败: {err}");
@@ -468,7 +584,7 @@ fn save_history(entries: &[HistoryEntry]) -> Result<()> {
     fs::create_dir_all(app_dir())?;
     let mut text = String::new();
     for entry in entries.iter().rev().take(MAX_HISTORY_ENTRIES).rev() {
-        text.push_str(&serde_json::to_string(entry)?);
+        text.push_str(&redact_runtime_text(&serde_json::to_string(entry)?));
         text.push('\n');
     }
     fs::write(history_file(), text)?;
@@ -569,7 +685,7 @@ fn write_diagnostics(target: Option<PathBuf>) -> Result<PathBuf> {
     let icon_path = app_icon_path()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "(not found)".to_string());
-    let content = format!(
+    let content = redact_runtime_text(&format!(
         "{APP_DISPLAY_NAME} diagnostics\n\
          version: {APP_VERSION}\n\
          exe: {}\n\
@@ -623,7 +739,7 @@ fn write_diagnostics(target: Option<PathBuf>) -> Result<PathBuf> {
         history_file().display(),
         history_preview(30),
         tail_log(160)
-    );
+    ));
     fs::write(&path, content)?;
     log(format!("已导出诊断: {}", path.display()));
     Ok(path)
@@ -849,7 +965,7 @@ fn write_self_check(target: Option<PathBuf>) -> Result<PathBuf> {
     .map(|relative| check_file(&root, relative))
     .collect::<Vec<_>>()
     .join("\n");
-    let content = format!(
+    let content = redact_runtime_text(&format!(
         "{APP_DISPLAY_NAME} self-check\n\
          version: {APP_VERSION}\n\
          generated_at_unix: {}\n\
@@ -894,7 +1010,7 @@ fn write_self_check(target: Option<PathBuf>) -> Result<PathBuf> {
         manual_hotkey_label(&settings),
         package_files,
         tail_log(80)
-    );
+    ));
     fs::write(&path, content)?;
     log(format!("已导出自检报告: {}", path.display()));
     Ok(path)
@@ -923,6 +1039,7 @@ fn install_panic_hook() {
         let _ = fs::create_dir_all(crashes_dir());
         let path = crash_report_path();
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("(unknown)"));
+        let payload = redact_runtime_text(&payload);
         let content = format!(
             "{APP_DISPLAY_NAME} crash report\n\
              version: {APP_VERSION}\n\
@@ -1574,7 +1691,7 @@ fn build_payload_variants(parsed: &ParsedItem, options: &QueryOptions) -> Vec<Va
 
 fn trade_search_url(league: &str) -> String {
     format!(
-        "https://poe.game.qq.com/api/trade2/search/{}/{}",
+        "{TRADE_API_ROOT}/search/{}/{}",
         REALM,
         urlencoding::encode(league)
     )
@@ -1591,10 +1708,20 @@ fn trade_result_url(league: &str, query_id: &str) -> String {
 
 fn fetch_url(ids: &[String], query_id: &str) -> String {
     format!(
-        "https://poe.game.qq.com/api/trade2/fetch/{}?query={}",
+        "{TRADE_API_ROOT}/fetch/{}?query={}",
         ids.join(","),
         urlencoding::encode(query_id)
     )
+}
+
+/// 返回国服 trade2 属性库地址。
+fn trade_stats_url() -> String {
+    format!("{TRADE_API_ROOT}/data/stats")
+}
+
+/// 判断地址是否严格属于允许访问的国服 trade2 页面或 API。
+fn is_allowed_trade_endpoint(url: &str) -> bool {
+    url == TRADE_HOME || url == TRADE_API_ROOT || url.starts_with(&format!("{TRADE_API_ROOT}/"))
 }
 
 #[derive(Debug, Clone)]
@@ -1615,8 +1742,14 @@ fn load_stat_defs() -> Result<&'static Vec<StatDef>, TradeError> {
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|err| TradeError::Request(format!("创建 HTTP 客户端失败: {err}")))?;
+    let stats_url = trade_stats_url();
+    if !is_allowed_trade_endpoint(&stats_url) {
+        return Err(TradeError::Request(
+            "已阻止非国服 trade2 属性库地址".to_string(),
+        ));
+    }
     let data = client
-        .get("https://poe.game.qq.com/api/trade2/data/stats")
+        .get(&stats_url)
         .header("Accept", "application/json")
         .header("User-Agent", USER_AGENT)
         .send()
@@ -1690,6 +1823,11 @@ fn request_json(
     method: Method,
     payload: Option<&Value>,
 ) -> Result<Value, TradeError> {
+    if !is_allowed_trade_endpoint(url) {
+        return Err(TradeError::Request(
+            "已阻止非国服 trade2 请求地址".to_string(),
+        ));
+    }
     let cookie = load_cookie()
         .map_err(|err| TradeError::Auth(format!("读取 POESESSID 失败: {err}")))?
         .ok_or_else(|| TradeError::Auth(format!("没有保存 POESESSID。{}", support_hint())))?;
@@ -3880,6 +4018,14 @@ fn project_root_dir() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+/// 使用统一脱敏规则原地清理诊断或支持包中的文本文件。
+fn redact_file(path: &str) -> Result<()> {
+    let text = fs::read_to_string(path).with_context(|| format!("读取待脱敏文件失败: {path}"))?;
+    fs::write(path, redact_runtime_text(&text))
+        .with_context(|| format!("写入脱敏文件失败: {path}"))?;
+    Ok(())
+}
+
 fn launch_cookie_setup() -> Result<()> {
     let root = project_root_dir();
     let script = root.join("set_cookie_gui.ps1");
@@ -4109,6 +4255,7 @@ fn print_usage() {
     println!("  --diagnostics [PATH] 导出诊断文件");
     println!("  --self-check [PATH] 导出客户自检报告");
     println!("  --check-update [PATH] 检查 GitHub Release 最新版本");
+    println!("  --redact-file PATH 脱敏诊断或支持包文本");
 }
 
 fn main() -> Result<()> {
@@ -4167,6 +4314,13 @@ fn main() -> Result<()> {
             .map(PathBuf::from);
         let path = write_update_check(target)?;
         println!("更新检查已导出: {}", path.display());
+        return Ok(());
+    }
+    if let Some(index) = args.iter().position(|arg| arg == "--redact-file") {
+        let Some(path) = args.get(index + 1) else {
+            bail!("--redact-file 缺少路径");
+        };
+        redact_file(path)?;
         return Ok(());
     }
     let Some(instance_mutex) = claim_single_instance()? else {
@@ -4319,5 +4473,47 @@ mod tests {
             20.0
         );
         assert_eq!(payload["sort"]["price"], "asc");
+    }
+
+    #[test]
+    fn redacts_cookie_headers_json_values_and_known_secret() {
+        let secret = ["SYNTHETIC_", "POESESSID_", "7f3a91d2"].concat();
+        let text = format!(
+            "POESESSID={secret}\nCookie: foo=bar; POESESSID={secret}\n{{\"POESESSID\":\"{secret}\"}}\nknown={secret}"
+        );
+        let known_cookie = format!("POESESSID={secret}; foo=bar");
+        let redacted = redact_sensitive_text(&text, Some(&known_cookie));
+
+        assert!(!redacted.contains(&secret));
+        assert!(redacted.contains(REDACTED_SECRET));
+        assert!(redacted.contains("POESESSID=[REDACTED]"));
+        assert!(redacted.contains("Cookie: [REDACTED]"));
+        assert!(redacted.contains("\"POESESSID\":\"[REDACTED]\""));
+    }
+
+    #[test]
+    fn trade_endpoints_are_restricted_to_cn_official_trade2() {
+        let search = trade_search_url("永久");
+        let fetch = fetch_url(&["item-id".to_string()], "query-id");
+        let stats = trade_stats_url();
+
+        for url in [TRADE_HOME.to_string(), search, fetch, stats] {
+            assert!(
+                is_allowed_trade_endpoint(&url),
+                "unexpected endpoint: {url}"
+            );
+        }
+        assert!(!is_allowed_trade_endpoint(&trade_result_url(
+            "永久", "query-id"
+        )));
+        assert!(!is_allowed_trade_endpoint(
+            "https://www.pathofexile.com/trade2"
+        ));
+        assert!(!is_allowed_trade_endpoint(
+            "https://poe.game.qq.com.evil.example/api/trade2/search/poe2/test"
+        ));
+        assert!(!is_allowed_trade_endpoint(
+            "https://poe.game.qq.com/api/trade/search/poe2/test"
+        ));
     }
 }

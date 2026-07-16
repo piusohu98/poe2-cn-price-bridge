@@ -325,21 +325,27 @@ function Save-And-ValidateCookie {
         return
     }
 
-    $tmp = [System.IO.Path]::GetTempFileName()
-    [System.IO.File]::WriteAllText($tmp, $cookieText, [System.Text.UTF8Encoding]::new($false))
-    Set-Status -Text '正在加密保存 Cookie...'
-    Update-Ui
-    $process = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-        Set-Status -Text "保存失败，退出码: $($process.ExitCode)" -Kind 'error'
-        return
-    }
+    $tmp = $null
+    try {
+        $tmp = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($tmp, $cookieText, [System.Text.UTF8Encoding]::new($false))
+        Set-Status -Text '正在加密保存 Cookie...'
+        Update-Ui
+        $process = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
+        if ($process.ExitCode -ne 0) {
+            Set-Status -Text "保存失败，退出码: $($process.ExitCode)" -Kind 'error'
+            return
+        }
 
-    Set-Status -Text '已保存，正在请求国服 trade2 验证...'
-    Update-Ui
-    $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
-    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        Set-Status -Text '已保存，正在请求国服 trade2 验证...'
+        Update-Ui
+        $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
+    } finally {
+        if ($tmp -and (Test-Path -LiteralPath $tmp)) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+        $cookieText = $null
+    }
     if ($validation.ExitCode -ne 0) {
         Set-Status -Text '已保存，但验证失败。请重新登录国服市集并复制新的 POESESSID。' -Kind 'error'
         return
