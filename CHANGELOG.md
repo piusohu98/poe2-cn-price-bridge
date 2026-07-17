@@ -2,11 +2,22 @@
 
 ## Unreleased
 
+## 0.3.0
+
+### Added
+
+- 浮动面板键盘快捷键支持：`←→` 翻页、`M` 切换同属性查价、`V` 切换数值下限筛选、`P` 固定/取消固定面板、`C` 复制市集链接、`O` 打开官方市集、`1-4` 逐条属性选择、`Esc` 关闭面板。
+- 托盘气泡通知：查价完成时自动弹出通知，显示最低价和挂单数；Cookie 过期、新版本可用时也会触发通知。
+- 托盘菜单"暂停/恢复自动查价"：点击后可临时禁用 `Ctrl+C` 自动查价，托盘图标 ToolTip 显示"[已暂停]"状态。
+- 托盘菜单"切换联赛"：支持快速切换主联赛（奥杜尔秘符）和备用联赛（永久）。
+- Whisper 一键复制：结果列表每行右侧新增绿色"W"按钮，点击后自动复制 `@卖家名 Hi, I'd like to buy your xxx listed for xxx` 到剪贴板。
+- 面板底部快捷键提示：显示当前可用的键盘快捷键列表。
+
 ### Integration
 
 - 首次向导默认使用已验证的微信扫码登录助手；发布包校验登录助手、锁定依赖、第三方许可证及 WebView2 x64 Loader，并检查 Runtime 缺失时的微软官方安装入口。
 
-### Added
+### Added (0.2.x 延续)
 
 - 新增独立的 `QingPriceLogin.exe` 登录 PoC，使用 .NET Framework 4.8 WPF 和 `Microsoft.Web.WebView2` 1.0.4078.44。
 - 新增 Rust `--set-cookie-stdin` 桥接入口，仅接受裸 POESESSID，并在国服 trade2 验证通过后使用 DPAPI 保存。

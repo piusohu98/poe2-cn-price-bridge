@@ -47,8 +47,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, RegisterHotKey, ReleaseCapture, UnregisterHotKey,
 };
 use windows_sys::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NIN_SELECT,
-    NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIIF_WARNING, NIM_ADD, NIM_DELETE,
+    NIM_MODIFY, NIM_SETVERSION, NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu, CreateWindowExW,
@@ -60,8 +61,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
     WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE,
-    WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT,
-    WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NULL,
+    WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
@@ -108,6 +110,10 @@ const IDM_SELF_CHECK: usize = 1010;
 const IDM_UPDATE_CHECK: usize = 1011;
 const IDM_ABOUT: usize = 1012;
 const IDM_QUIT: usize = 1013;
+const IDM_TOGGLE_AUTO: usize = 1014;
+// 联赛快捷切换
+const IDM_LEAGUE_STANDARD: usize = 2001;
+const IDM_LEAGUE_PERMANENT: usize = 2002;
 
 fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain(Some(0)).collect()
@@ -180,6 +186,7 @@ enum UiButton {
     Next,
     Open,
     Copy,
+    Whisper(usize),
 }
 
 struct UiButtonSpec {
@@ -2447,6 +2454,8 @@ struct UiState {
     tray_added: bool,
     app_icon: HICON,
     app_icon_owned: bool,
+    auto_paused: bool,
+    balloon_counter: u64,
 }
 
 impl UiState {
@@ -2475,6 +2484,8 @@ impl UiState {
             tray_added: false,
             app_icon: null_mut(),
             app_icon_owned: false,
+            auto_paused: false,
+            balloon_counter: 0,
         }
     }
 
@@ -2500,6 +2511,18 @@ impl UiState {
             version_data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
             Shell_NotifyIconW(NIM_SETVERSION, &version_data);
         }
+    }
+
+    /// 显示托盘气泡通知
+    unsafe fn show_tray_balloon(&mut self, title: &str, message: &str, is_error: bool) {
+        self.balloon_counter = self.balloon_counter.wrapping_add(1);
+        let mut data = notify_icon_data(self.hwnd);
+        data.uFlags = NIF_INFO;
+        data.dwInfoFlags = if is_error { NIIF_WARNING } else { NIIF_INFO };
+        data.Anonymous.uTimeout = 10000;
+        copy_wide_fixed(&mut data.szInfoTitle, title);
+        copy_wide_fixed(&mut data.szInfo, message);
+        Shell_NotifyIconW(NIM_MODIFY, &data);
     }
 
     unsafe fn remove_tray_icon(&mut self) {
@@ -2556,8 +2579,10 @@ impl UiState {
         let labels = [
             wide("打开面板"),
             wide("立即查价"),
+            wide(if self.auto_paused { "恢复自动查价" } else { "暂停自动查价" }),
             wide("首次使用向导"),
             wide("设置"),
+            wide(if self.settings.primary_league == "永久" { "切换联赛: 奥杜尔秘符" } else { "切换联赛: 永久" }),
             wide("设置 Cookie"),
             wide("验证 Cookie"),
             wide("查询历史"),
@@ -2570,19 +2595,21 @@ impl UiState {
         ];
         AppendMenuW(menu, MF_STRING, IDM_SHOW, labels[0].as_ptr());
         AppendMenuW(menu, MF_STRING, IDM_PRICE, labels[1].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_WIZARD, labels[2].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_SETTINGS, labels[3].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_COOKIE, labels[4].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_VALIDATE_COOKIE, labels[5].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_HISTORY, labels[6].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_TRADE_HOME, labels[7].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_TOGGLE_AUTO, labels[2].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_WIZARD, labels[3].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_SETTINGS, labels[4].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_LEAGUE_STANDARD, labels[5].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_COOKIE, labels[6].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_VALIDATE_COOKIE, labels[7].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_HISTORY, labels[8].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_TRADE_HOME, labels[9].as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
-        AppendMenuW(menu, MF_STRING, IDM_SELF_CHECK, labels[8].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_DIAGNOSTICS, labels[9].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_UPDATE_CHECK, labels[10].as_ptr());
-        AppendMenuW(menu, MF_STRING, IDM_ABOUT, labels[11].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_SELF_CHECK, labels[10].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_DIAGNOSTICS, labels[11].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_UPDATE_CHECK, labels[12].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_ABOUT, labels[13].as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
-        AppendMenuW(menu, MF_STRING, IDM_QUIT, labels[12].as_ptr());
+        AppendMenuW(menu, MF_STRING, IDM_QUIT, labels[14].as_ptr());
 
         let mut point = POINT { x: 0, y: 0 };
         GetCursorPos(&mut point);
@@ -2608,8 +2635,36 @@ impl UiState {
         match command_id {
             IDM_SHOW => self.show_from_tray(),
             IDM_PRICE => start_price_query(self.event_tx.clone()),
+            IDM_TOGGLE_AUTO => {
+                self.auto_paused = !self.auto_paused;
+                let mut data = notify_icon_data(self.hwnd);
+                data.uFlags = NIF_TIP;
+                copy_wide_fixed(
+                    &mut data.szTip,
+                    if self.auto_paused {
+                        "流放2查价助手 - Ctrl+C 自动查价 [已暂停]"
+                    } else {
+                        "流放2查价助手 - Ctrl+C 自动查价"
+                    },
+                );
+                Shell_NotifyIconW(NIM_MODIFY, &data);
+            }
             IDM_WIZARD => self.open_first_run_wizard(),
             IDM_SETTINGS => self.open_settings(),
+            IDM_LEAGUE_STANDARD | IDM_LEAGUE_PERMANENT => {
+                let new_league = if command_id == IDM_LEAGUE_PERMANENT {
+                    "永久"
+                } else {
+                    "奥杜尔秘符"
+                };
+                let mut config = load_config();
+                config.settings.primary_league = new_league.to_string();
+                if let Err(err) = save_config(&config) {
+                    eprintln!("保存联赛设置失败: {err}");
+                } else {
+                    self.settings = load_config().settings.normalized();
+                }
+            }
             IDM_COOKIE => self.open_cookie_setup(),
             IDM_VALIDATE_COOKIE => start_cookie_validation(self.event_tx.clone()),
             IDM_HISTORY => self.open_history(),
@@ -2664,15 +2719,25 @@ impl UiState {
                     result.total,
                     min(result.entries.len(), result.page_size)
                 );
+                let display_name = result.item.display.clone();
+                let balloon_total = result.total;
+                let balloon_priced = result
+                    .entries
+                    .iter()
+                    .map(|e| e.price.as_str())
+                    .find(|p| !p.is_empty() && *p != "未标价")
+                    .unwrap_or("无标价")
+                    .to_string();
+                let balloon_url = result.url.clone();
                 self.view = OverlayView {
-                    title: result.item.display.clone(),
+                    title: display_name.clone(),
                     subtitle: if subtitle.is_empty() {
                         APP_DISPLAY_NAME.to_string()
                     } else {
                         subtitle
                     },
                     status,
-                    current_url: result.url.clone(),
+                    current_url: balloon_url,
                     accent,
                     kind: ViewKind::Result(result),
                 };
@@ -2681,6 +2746,15 @@ impl UiState {
                     _ => 500,
                 };
                 self.show_panel(760, height, timeout);
+                // 查询成功时显示托盘气泡通知
+                self.show_tray_balloon(
+                    "查价完成",
+                    &format!(
+                        "{}  最低价: {}  共{}条挂单",
+                        display_name, balloon_priced, balloon_total
+                    ),
+                    false,
+                );
             }
         }
     }
@@ -2732,6 +2806,9 @@ impl UiState {
     }
 
     fn poll_clipboard_auto_query(&mut self) {
+        if self.auto_paused {
+            return;
+        }
         if !self.settings.auto_clipboard {
             return;
         }
@@ -2781,6 +2858,31 @@ impl UiState {
                 Ok(_) => self.view.status = "已复制市集链接".to_string(),
                 Err(err) => self.view.status = format!("复制失败: {err}"),
             }
+        }
+        InvalidateRect(self.hwnd, null(), 1);
+    }
+
+    /// 复制私聊消息到剪贴板，index 为原始 entries 中的行索引
+    unsafe fn copy_whisper_for_row(&mut self, row_index: usize) {
+        let Some(result) = self.current_result() else {
+            self.view.status = "没有可复制的查询结果".to_string();
+            InvalidateRect(self.hwnd, null(), 1);
+            return;
+        };
+        let Some(entry) = result.entries.get(row_index) else {
+            self.view.status = format!("行索引 {row_index} 无效");
+            InvalidateRect(self.hwnd, null(), 1);
+            return;
+        };
+        let message = format!(
+            "@{} Hi, I'd like to buy your {} listed for {} in {}",
+            entry.seller, entry.item_name, entry.price, result.league
+        );
+        match copy_text_to_clipboard(&message) {
+            Ok(_) => {
+                self.view.status = format!("已复制 whisper 消息: @{}", entry.seller);
+            }
+            Err(err) => self.view.status = format!("复制失败: {err}"),
         }
         InvalidateRect(self.hwnd, null(), 1);
     }
@@ -3031,6 +3133,32 @@ impl UiState {
                         });
                     }
                 }
+                // 每行的私聊W按钮
+                let page_size = result.page_size.max(1);
+                let pages = max(1, result.entries.len().div_ceil(page_size));
+                let page = min(self.page, pages - 1);
+                let visible_start = page * page_size;
+                let visible_entries = result
+                    .entries
+                    .iter()
+                    .skip(visible_start)
+                    .take(page_size);
+                for (idx, _entry) in visible_entries.enumerate() {
+                    let row_top = 210 + 28 + idx as i32 * 27;
+                    let entry_index = visible_start + idx;
+                    specs.push(UiButtonSpec {
+                        button: UiButton::Whisper(entry_index),
+                        label: "W".to_string(),
+                        rect: RECT {
+                            left: rect.right - 70,
+                            top: row_top + 6,
+                            right: rect.right - 32,
+                            bottom: row_top + 22,
+                        },
+                        enabled: true,
+                        primary: false,
+                    });
+                }
             }
             specs.extend([
                 UiButtonSpec {
@@ -3149,10 +3277,35 @@ impl UiState {
                 UiButton::Next => self.page_next(),
                 UiButton::Open => self.open_current_url(),
                 UiButton::Copy => self.copy_url(),
+                UiButton::Whisper(index) => self.copy_whisper_for_row(index),
             }
             return true;
         }
         false
+    }
+
+    /// 键盘快捷键处理，返回 true 表示已处理
+    unsafe fn handle_key_down(&mut self, vk_code: u32) -> bool {
+        let has_result = self.current_result().is_some();
+        match vk_code {
+            0x25 => { if has_result { self.page_prev(); } else { return false; } } // ← 上一页
+            0x27 => { if has_result { self.page_next(); } else { return false; } } // → 下一页
+            0x4D => { if has_result { self.toggle_mod_filters(); } else { return false; } } // M 同属性
+            0x56 => { if has_result { self.toggle_value_filters(); } else { return false; } } // V 数值
+            0x50 => { self.toggle_pin(); } // P 固定
+            0x43 => { if has_result { self.copy_url(); } else { return false; } } // C 复制链接
+            0x4F => { self.open_current_url(); } // O 打开市集
+            0x31..=0x34 => { // 1-4 切换属性chip
+                if has_result {
+                    let index = (vk_code - 0x31) as usize;
+                    self.toggle_single_mod(index);
+                } else { return false; }
+            }
+            0x1B => { ShowWindow(self.hwnd, SW_HIDE); } // Esc 关闭
+            _ => return false,
+        }
+        InvalidateRect(self.hwnd, null(), 1);
+        true
     }
 
     unsafe fn open_current_url(&self) {
@@ -3355,6 +3508,20 @@ impl UiState {
                 bottom: rect.bottom - 12,
             },
             rgb(148, 163, 184),
+            self.fonts.small,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
+        // 快捷键提示：放在底部按钮上方，避免与按钮重叠
+        draw_text(
+            hdc,
+            "快捷键: ←→ 翻页  M 切换属性  V 数值  P 固定  C 复制  O 市集  Esc 关闭",
+            RECT {
+                left: 16,
+                top: rect.bottom - 66,
+                right: rect.right - 16,
+                bottom: rect.bottom - 48,
+            },
+            rgb(100, 116, 139),
             self.fonts.small,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
         );
@@ -3651,12 +3818,28 @@ impl UiState {
                 RECT {
                     left: 340,
                     top,
-                    right: rect.right - 32,
+                    right: rect.right - 72,
                     bottom: top + 27,
                 },
                 rgb(229, 231, 235),
                 self.fonts.small,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+            );
+            // 私聊W按钮
+            let w_btn_rect = RECT {
+                left: rect.right - 70,
+                top: top + 6,
+                right: rect.right - 32,
+                bottom: top + 22,
+            };
+            rounded_rect(hdc, w_btn_rect, rgb(22, 68, 52), rgb(52, 211, 153), 4);
+            draw_text(
+                hdc,
+                "W",
+                w_btn_rect,
+                rgb(255, 255, 255),
+                self.fonts.small,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
             );
         }
     }
@@ -3797,6 +3980,14 @@ unsafe extern "system" fn wnd_proc(
                 state.handle_tray_command(wparam & 0xffff);
             }
             0
+        }
+        WM_KEYDOWN => {
+            if let Some(state) = state_from_hwnd(hwnd)
+                && state.handle_key_down(wparam as u32)
+            {
+                return 0;
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
         }
         WM_LBUTTONDOWN => {
             let x = (lparam as i16) as i32;
