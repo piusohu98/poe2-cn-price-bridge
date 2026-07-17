@@ -1680,8 +1680,7 @@ pub(crate) fn relative_time_ago(iso_time: &str) -> String {
 
     // 计算目标时间从 epoch 起的天数
     let target_days = days_since_epoch(year, month, day);
-    let total_secs =
-        target_days * 86400 + hour as i64 * 3600 + min as i64 * 60;
+    let total_secs = target_days * 86400 + hour as i64 * 3600 + min as i64 * 60;
     let elapsed = now_secs - total_secs;
 
     if elapsed < 0 {
@@ -1799,18 +1798,6 @@ enum ItemValueTier {
 }
 
 impl ItemValueTier {
-    /// 价值等级的显示名称
-    fn label(&self) -> &'static str {
-        match self {
-            ItemValueTier::Legendary => "⭐ 神装",
-            ItemValueTier::High => "💎 高价值",
-            ItemValueTier::Medium => "📦 中等",
-            ItemValueTier::Normal => "🔹 普通",
-            ItemValueTier::Junk => "🗑️ 垃圾",
-            ItemValueTier::Unknown => "❓ 未估价",
-        }
-    }
-
     /// 价值等级对应的颜色（RGB）
     fn color(&self) -> u32 {
         match self {
@@ -3454,15 +3441,6 @@ impl UiState {
             } => {
                 self.page = 0;
                 self.query_options = result.options.clone();
-                let subtitle = [
-                    result.item.base_type.clone(),
-                    result.item.rarity_raw.clone(),
-                    result.league.clone(),
-                ]
-                .into_iter()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" | ");
                 let status = format!(
                     "查询到 {} 条，显示前 {} 条",
                     result.total,
@@ -3479,12 +3457,8 @@ impl UiState {
                     .to_string();
                 let balloon_url = result.url.clone();
                 self.view = OverlayView {
-                    title: display_name.clone(),
-                    subtitle: if subtitle.is_empty() {
-                        APP_DISPLAY_NAME.to_string()
-                    } else {
-                        subtitle
-                    },
+                    title: "流放2查价助手".to_string(),
+                    subtitle: "国服查价".to_string(),
                     status,
                     current_url: balloon_url,
                     accent,
@@ -3807,6 +3781,7 @@ unsafe extern "system" fn wnd_proc(
                     .iter()
                     .find(|spec| layout::rect_contains(&spec.rect, x, y))
                     .map(|spec| spec.button);
+                InvalidateRect(hwnd, std::ptr::null(), 0);
             }
             0
         }

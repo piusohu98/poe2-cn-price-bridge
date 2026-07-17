@@ -125,7 +125,7 @@ impl OverlayRenderer for UiState {
                 right: rect.right - 170,
                 bottom: 30,
             },
-            self.view.accent,
+            theme::TEXT_BRIGHT,
             self.fonts.title,
             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
         );
@@ -155,19 +155,10 @@ impl OverlayRenderer for UiState {
                 let specs = self.button_specs(rect);
                 self.paint_buttons(hdc, &specs);
                 // 底部状态栏
-                let status = if self.view.status.is_empty() {
-                    if self.pinned {
-                        "面板已固定".to_string()
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    self.view.status.clone()
-                };
                 // 左侧：快捷键提示
                 draw_text(
                     hdc,
-                    "快捷键: ←→ 翻页  M 切换属性  V 数值  P 固定  C 复制  O 市集  Esc 关闭",
+                    "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
                     RECT {
                         left: 16,
                         top: rect.bottom - 44,
@@ -178,10 +169,18 @@ impl OverlayRenderer for UiState {
                     self.fonts.small,
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
                 );
-                // 右侧：状态文字
+                // 右侧：完整状态文字
+                let page_range = if result.entries.is_empty() {
+                    String::new()
+                } else {
+                    let page_size = visible_row_count(&plan.table_body).max(1);
+                    let start = self.page * page_size + 1;
+                    let end = ((self.page + 1) * page_size).min(result.entries.len());
+                    format!("查询到 {} 条，当前 {}-{}", result.total, start, end)
+                };
                 draw_text(
                     hdc,
-                    &status,
+                    &page_range,
                     RECT {
                         left: rect.right - 200,
                         top: rect.bottom - 44,
@@ -213,7 +212,7 @@ impl OverlayRenderer for UiState {
         // 左侧：快捷键提示
         draw_text(
             hdc,
-            "快捷键: ←→ 翻页  M 切换属性  V 数值  P 固定  C 复制  O 市集  Esc 关闭",
+            "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
             RECT {
                 left: 16,
                 top: rect.bottom - 44,
@@ -244,7 +243,14 @@ impl OverlayRenderer for UiState {
     }
 
     unsafe fn paint_value_tier_badge(&self, hdc: HDC, rect: RECT, tier: ItemValueTier) {
-        let label = tier.label();
+        let label = match tier {
+            ItemValueTier::Legendary => "神装",
+            ItemValueTier::High => "高价值",
+            ItemValueTier::Medium => "普通",
+            ItemValueTier::Normal => "一般",
+            ItemValueTier::Junk => "低价值",
+            ItemValueTier::Unknown => return, // 未知不显示
+        };
         let color = tier.color();
         let badge_w = 72;
         let badge_h = 22;

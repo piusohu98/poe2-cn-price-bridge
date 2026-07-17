@@ -561,25 +561,86 @@ impl OverlayLayout for UiState {
             });
         }
 
-        // 重新搜索按钮（可见，在词缀区底部）
+        let act = &plan.filter_actions;
+        let act_right = act.right;
+
+        // ── 按钮分组 ──
+        // 组3（外部操作）：打开市集(w=72) + 复制链接(w=72)，靠最右
+        let group3_w: i32 = 72 + 4 + 72;
+        let group3_x = act_right - 16 - group3_w;
+        specs.push(UiButtonSpec {
+            button: UiButton::OpenTrade,
+            label: "打开市集".to_string(),
+            rect: RECT {
+                left: group3_x,
+                top: act.top,
+                right: group3_x + 72,
+                bottom: act.bottom,
+            },
+            enabled: true,
+            primary: false,
+            visible: true,
+        });
+        specs.push(UiButtonSpec {
+            button: UiButton::Copy,
+            label: "复制链接".to_string(),
+            rect: RECT {
+                left: group3_x + 72 + 4,
+                top: act.top,
+                right: group3_x + group3_w,
+                bottom: act.bottom,
+            },
+            enabled: has_url,
+            primary: false,
+            visible: true,
+        });
+
+        // 组2（翻页）：上一页(w=56) + 下一页(w=56)，靠右对齐
+        let group2_w: i32 = 56 + 4 + 56;
+        let group2_x = group3_x - 8 - group2_w;
+        specs.push(UiButtonSpec {
+            button: UiButton::Prev,
+            label: "上一页".to_string(),
+            rect: RECT {
+                left: group2_x,
+                top: act.top,
+                right: group2_x + 56,
+                bottom: act.bottom,
+            },
+            enabled: can_prev,
+            primary: false,
+            visible: true,
+        });
+        specs.push(UiButtonSpec {
+            button: UiButton::Next,
+            label: "下一页".to_string(),
+            rect: RECT {
+                left: group2_x + 56 + 4,
+                top: act.top,
+                right: group2_x + group2_w,
+                bottom: act.bottom,
+            },
+            enabled: can_next,
+            primary: false,
+            visible: true,
+        });
+
+        // 组1（搜索操作）：重新搜索(w=100) + 同属性(w=56) + 数值(w=56)
+        let mut x: i32 = 16;
         specs.push(UiButtonSpec {
             button: UiButton::RerunSearch,
             label: "重新搜索".to_string(),
             rect: RECT {
-                left: 16,
-                top: plan.modifiers.bottom - 24,
-                right: 120,
-                bottom: plan.modifiers.bottom,
+                left: x,
+                top: act.top,
+                right: x + 100,
+                bottom: act.bottom,
             },
             enabled: true,
             primary: self.filters_dirty,
             visible: true,
         });
-
-        // 筛选动作按钮（可见）
-        let act = &plan.filter_actions;
-        let btn_w = (act.right - 32 - 5 * 4) / 6;
-        let mut x = 16;
+        x += 100 + 4;
         specs.push(UiButtonSpec {
             button: UiButton::Mods,
             label: (if self.query_options.use_mods {
@@ -591,14 +652,14 @@ impl OverlayLayout for UiState {
             rect: RECT {
                 left: x,
                 top: act.top,
-                right: x + btn_w,
+                right: x + 56,
                 bottom: act.bottom,
             },
             enabled: has_mods,
             primary: self.query_options.use_mods,
             visible: true,
         });
-        x += btn_w + 4;
+        x += 56 + 4;
         specs.push(UiButtonSpec {
             button: UiButton::Values,
             label: (if self.query_options.use_values {
@@ -610,67 +671,11 @@ impl OverlayLayout for UiState {
             rect: RECT {
                 left: x,
                 top: act.top,
-                right: x + btn_w,
+                right: x + 56,
                 bottom: act.bottom,
             },
             enabled: has_mods,
             primary: self.query_options.use_values,
-            visible: true,
-        });
-        x += btn_w + 4;
-        specs.push(UiButtonSpec {
-            button: UiButton::Prev,
-            label: "上一页".to_string(),
-            rect: RECT {
-                left: x,
-                top: act.top,
-                right: x + btn_w,
-                bottom: act.bottom,
-            },
-            enabled: can_prev,
-            primary: false,
-            visible: true,
-        });
-        x += btn_w + 4;
-        specs.push(UiButtonSpec {
-            button: UiButton::Next,
-            label: "下一页".to_string(),
-            rect: RECT {
-                left: x,
-                top: act.top,
-                right: x + btn_w,
-                bottom: act.bottom,
-            },
-            enabled: can_next,
-            primary: false,
-            visible: true,
-        });
-        x += btn_w + 4;
-        specs.push(UiButtonSpec {
-            button: UiButton::OpenTrade,
-            label: "打开市集".to_string(),
-            rect: RECT {
-                left: x,
-                top: act.top,
-                right: x + btn_w,
-                bottom: act.bottom,
-            },
-            enabled: true,
-            primary: false,
-            visible: true,
-        });
-        x += btn_w + 4;
-        specs.push(UiButtonSpec {
-            button: UiButton::Copy,
-            label: "复制链接".to_string(),
-            rect: RECT {
-                left: x,
-                top: act.top,
-                right: x + btn_w,
-                bottom: act.bottom,
-            },
-            enabled: has_url,
-            primary: false,
             visible: true,
         });
 
