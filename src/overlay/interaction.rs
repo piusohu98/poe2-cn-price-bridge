@@ -1,4 +1,4 @@
-﻿use std::time::{Duration, Instant};
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
@@ -73,7 +73,7 @@ impl OverlayInteraction for UiState {
             }
             if !spec.enabled {
                 self.view.status = "这个操作当前不可用".to_string();
-                InvalidateRect(self.hwnd, std::ptr::null(), 1);
+                InvalidateRect(self.hwnd, std::ptr::null(), 0);
                 return true;
             }
             match spec.button {
@@ -181,14 +181,14 @@ impl OverlayInteraction for UiState {
             } // Esc 关闭
             _ => return false,
         }
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
         true
     }
 
     unsafe fn toggle_pin(&mut self) {
         self.pinned = !self.pinned;
         self.hide_deadline = None;
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
     }
 
     unsafe fn copy_url(&mut self) {
@@ -200,19 +200,19 @@ impl OverlayInteraction for UiState {
                 Err(err) => self.view.status = format!("复制失败: {err}"),
             }
         }
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
     }
 
     /// 复制私聊消息到剪贴板，index 为原始 entries 中的行索引
     unsafe fn copy_whisper_for_row(&mut self, row_index: usize) {
         let Some(result) = self.current_result() else {
             self.view.status = "没有可复制的查询结果".to_string();
-            InvalidateRect(self.hwnd, std::ptr::null(), 1);
+            InvalidateRect(self.hwnd, std::ptr::null(), 0);
             return;
         };
         let Some(entry) = result.entries.get(row_index) else {
             self.view.status = format!("行索引 {row_index} 无效");
-            InvalidateRect(self.hwnd, std::ptr::null(), 1);
+            InvalidateRect(self.hwnd, std::ptr::null(), 0);
             return;
         };
         let message = if let Some(ref whisper) = entry.whisper_text {
@@ -229,7 +229,7 @@ impl OverlayInteraction for UiState {
             }
             Err(err) => self.view.status = format!("复制失败: {err}"),
         }
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
     }
 
     unsafe fn rerun_current_query(&mut self) {
@@ -240,7 +240,7 @@ impl OverlayInteraction for UiState {
         let options = self.query_options.clone();
         self.filters_dirty = false;
         self.view.status = "正在按新筛选重新查询...".to_string();
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
         start_price_query_from_parsed(parsed, options, self.event_tx.clone());
     }
 
@@ -287,7 +287,7 @@ impl OverlayInteraction for UiState {
         if let Some(position) = selected.iter().position(|value| value == &pattern) {
             if selected.len() <= 1 {
                 self.view.status = "至少保留一个属性筛选".to_string();
-                InvalidateRect(self.hwnd, std::ptr::null(), 1);
+                InvalidateRect(self.hwnd, std::ptr::null(), 0);
                 return;
             }
             selected.remove(position);
@@ -299,13 +299,13 @@ impl OverlayInteraction for UiState {
         self.query_options.selected_mod_patterns = Some(selected);
         self.filters_dirty = true;
         self.view.status = "筛选条件已更改，请点击重新搜索".to_string();
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
     }
 
     unsafe fn page_prev(&mut self) {
         if self.page > 0 {
             self.page -= 1;
-            InvalidateRect(self.hwnd, std::ptr::null(), 1);
+            InvalidateRect(self.hwnd, std::ptr::null(), 0);
         }
     }
 
@@ -315,7 +315,7 @@ impl OverlayInteraction for UiState {
         };
         if (self.page + 1) * result.page_size < result.entries.len() {
             self.page += 1;
-            InvalidateRect(self.hwnd, std::ptr::null(), 1);
+            InvalidateRect(self.hwnd, std::ptr::null(), 0);
         }
     }
 
@@ -337,7 +337,7 @@ impl OverlayInteraction for UiState {
         };
         self.current_sort = new_sort;
         self.page = 0;
-        InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
         true
     }
 }

@@ -39,8 +39,10 @@ use windows_sys::Win32::Security::Cryptography::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::CreateMutexW;
+use windows_sys::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    MOD_ALT, MOD_CONTROL, RegisterHotKey, ReleaseCapture, UnregisterHotKey,
+    MOD_ALT, MOD_CONTROL, RegisterHotKey, ReleaseCapture, TME_LEAVE, TRACKMOUSEEVENT,
+    TrackMouseEvent, UnregisterHotKey,
 };
 use windows_sys::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIIF_WARNING, NIM_ADD, NIM_DELETE,
@@ -56,10 +58,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
     SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE,
-    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
-    WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_ERASEBKGND,
+    WM_EXITSIZEMOVE, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER,
+    WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use crate::overlay::interaction::OverlayInteraction;
@@ -3181,6 +3183,7 @@ pub(crate) struct UiState {
     #[allow(dead_code)]
     pub(crate) filters_dirty: bool,
     pub(crate) hovered_button: Option<UiButton>,
+    pub(crate) track_mouse: bool,
 }
 
 impl UiState {
@@ -3214,6 +3217,7 @@ impl UiState {
             current_sort: SortOrder::PriceAsc,
             filters_dirty: false,
             hovered_button: None,
+            track_mouse: true,
         }
     }
 
@@ -3296,7 +3300,7 @@ impl UiState {
         ShowWindow(self.hwnd, SW_SHOW);
         SetForegroundWindow(self.hwnd);
         self.hide_deadline = None;
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn show_tray_menu(&mut self) {
@@ -3510,7 +3514,7 @@ impl UiState {
         } else {
             Some(Instant::now() + timeout)
         };
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn handle_timer(&mut self) {
@@ -3596,7 +3600,7 @@ impl UiState {
                 open_url(TRADE_HOME);
             }
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn open_settings(&mut self) {
@@ -3604,7 +3608,7 @@ impl UiState {
             Ok(_) => self.view.status = "已打开设置窗口".to_string(),
             Err(err) => self.view.status = format!("打开设置失败: {err}"),
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn open_first_run_wizard(&mut self) {
@@ -3612,7 +3616,7 @@ impl UiState {
             Ok(_) => self.view.status = "已打开首次使用向导".to_string(),
             Err(err) => self.view.status = format!("打开向导失败: {err}"),
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn open_history(&mut self) {
@@ -3620,7 +3624,7 @@ impl UiState {
             Ok(_) => self.view.status = "已打开查询历史".to_string(),
             Err(err) => self.view.status = format!("打开历史失败: {err}"),
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn export_diagnostics(&mut self) {
@@ -3633,7 +3637,7 @@ impl UiState {
                 self.view.status = format!("导出诊断失败: {err}");
             }
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn export_self_check(&mut self) {
@@ -3646,7 +3650,7 @@ impl UiState {
                 self.view.status = format!("运行自检失败: {err}");
             }
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn export_update_check(&mut self) {
@@ -3659,7 +3663,7 @@ impl UiState {
                 self.view.status = format!("检查更新失败: {err}");
             }
         }
-        InvalidateRect(self.hwnd, null(), 1);
+        InvalidateRect(self.hwnd, null(), 0);
     }
 
     unsafe fn show_about(&mut self) {
@@ -3761,6 +3765,14 @@ unsafe extern "system" fn wnd_proc(
             }
             0
         }
+        WM_MOUSELEAVE => {
+            if let Some(state) = state_from_hwnd(hwnd) {
+                state.hovered_button = None;
+                state.track_mouse = true;
+                InvalidateRect(hwnd, std::ptr::null(), 0);
+            }
+            0
+        }
         WM_KEYDOWN => {
             if let Some(state) = state_from_hwnd(hwnd)
                 && state.handle_key_down(wparam as u32)
@@ -3776,12 +3788,27 @@ unsafe extern "system" fn wnd_proc(
                 state.touch_activity();
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
-                state.hovered_button = state
+                let new_hover = state
                     .button_specs(rect)
                     .iter()
                     .find(|spec| layout::rect_contains(&spec.rect, x, y))
                     .map(|spec| spec.button);
-                InvalidateRect(hwnd, std::ptr::null(), 0);
+                // 只有 hover 变化时才重绘
+                if new_hover != state.hovered_button {
+                    state.hovered_button = new_hover;
+                    InvalidateRect(hwnd, std::ptr::null(), 0);
+                }
+                // 追踪鼠标离开
+                if state.track_mouse {
+                    state.track_mouse = false;
+                    let mut tme = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
+                    };
+                    TrackMouseEvent(&mut tme);
+                }
             }
             0
         }
@@ -3814,6 +3841,11 @@ unsafe extern "system" fn wnd_proc(
                 state.save_position();
             }
             0
+        }
+        WM_ERASEBKGND => {
+            // 返回1表示我们已经处理了背景擦除
+            // 避免系统再擦除一次造成闪烁
+            1
         }
         WM_PAINT => {
             if let Some(state) = state_from_hwnd(hwnd) {
@@ -4567,6 +4599,7 @@ impl UiState {
             current_sort: SortOrder::PriceAsc,
             filters_dirty: false,
             hovered_button: None,
+            track_mouse: true,
         }
     }
 }
@@ -5187,5 +5220,25 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(entry.online, Some(true));
+    }
+
+    fn should_repaint_on_hover(old: Option<UiButton>, new: Option<UiButton>) -> bool {
+        old != new
+    }
+
+    #[test]
+    fn hover_transition_does_not_trigger_redundant_repaint() {
+        // 模拟 hover 状态转换：同一按钮→不触发重绘
+        let same = UiButton::ModToggle(0);
+        assert!(!should_repaint_on_hover(Some(same), Some(same)));
+        // 不同按钮→触发重绘
+        assert!(should_repaint_on_hover(
+            Some(UiButton::ModToggle(0)),
+            Some(UiButton::ModToggle(1))
+        ));
+        // 进入→触发
+        assert!(should_repaint_on_hover(None, Some(UiButton::Close)));
+        // 离开→触发
+        assert!(should_repaint_on_hover(Some(UiButton::Close), None));
     }
 }

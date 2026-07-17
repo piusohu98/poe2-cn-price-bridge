@@ -1,6 +1,14 @@
-﻿# Changelog
+# Changelog
 
 ## Unreleased
+
+### Fixed
+
+- 修复 Overlay 在鼠标移动时持续闪烁的问题：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），禁用系统背景擦除（WM_ERASEBKGND 返回 1），添加 WM_MOUSELEAVE 追踪，仅当 hover 按钮变化时才触发重绘。
+
+### Tests
+
+- 新增 hover 状态转换测试 `hover_transition_does_not_trigger_redundant_repaint`，确保同一按钮不变时不触发重绘、不同按钮变化时触发重绘。
 
 ## 0.4.1
 

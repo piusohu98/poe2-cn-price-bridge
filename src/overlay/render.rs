@@ -3,9 +3,10 @@ use std::mem::MaybeUninit;
 
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, CreatePen, CreateSolidBrush, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE,
-    DT_TOP, DT_VCENTER, DT_WORDBREAK, DeleteObject, DrawTextW, EndPaint, FillRect, HDC, HFONT,
-    PAINTSTRUCT, PS_SOLID, RoundRect, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, CreateSolidBrush,
+    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_TOP, DT_VCENTER, DT_WORDBREAK, DeleteDC,
+    DeleteObject, DrawTextW, EndPaint, FillRect, HDC, HFONT, HGDIOBJ, PAINTSTRUCT, PS_SOLID,
+    RoundRect, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
 
@@ -84,161 +85,45 @@ pub trait OverlayRenderer {
 impl OverlayRenderer for UiState {
     unsafe fn paint(&self) {
         let mut ps = MaybeUninit::<PAINTSTRUCT>::zeroed().assume_init();
-        let hdc = BeginPaint(self.hwnd, &mut ps);
+        let screen_hdc = BeginPaint(self.hwnd, &mut ps);
         let mut rect = RECT::default();
         GetClientRect(self.hwnd, &mut rect);
 
-        // 整体背景
-        fill(hdc, rect, theme::BG_DARK);
-
-        // 标题栏背景
-        fill(
-            hdc,
-            RECT {
-                left: 0,
-                top: 0,
-                right: rect.right,
-                bottom: 52,
-            },
-            theme::BG_HEADER,
-        );
-
-        // 左侧绿色竖线
-        fill(
-            hdc,
-            RECT {
-                left: 0,
-                top: 0,
-                right: 5,
-                bottom: rect.bottom,
-            },
-            self.view.accent,
-        );
-
-        // 标题文字
-        draw_text(
-            hdc,
-            &self.view.title,
-            RECT {
-                left: 16,
-                top: 8,
-                right: rect.right - 170,
-                bottom: 30,
-            },
-            theme::TEXT_BRIGHT,
-            self.fonts.title,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-
-        // 副标题文字
-        draw_text(
-            hdc,
-            &self.view.subtitle,
-            RECT {
-                left: 16,
-                top: 30,
-                right: rect.right - 170,
-                bottom: 50,
-            },
-            theme::TEXT_MUTED,
-            self.fonts.small,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-
-        match &self.view.kind {
-            ViewKind::Message(lines) => self.paint_message(hdc, rect, lines),
-            ViewKind::Result(result) => {
-                self.paint_value_tier_badge(hdc, rect, result.value_tier);
-                let detail_lines = compute_item_detail_lines(&result.item);
-                let plan = LayoutPlan::compute(rect, detail_lines, result.item.mods.len());
-                self.paint_result(hdc, &plan, result);
-                let specs = self.button_specs(rect);
-                self.paint_buttons(hdc, &specs);
-                // 底部状态栏
-                // 左侧：快捷键提示
-                draw_text(
-                    hdc,
-                    "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
-                    RECT {
-                        left: 16,
-                        top: rect.bottom - 44,
-                        right: rect.right - 200,
-                        bottom: rect.bottom - 14,
-                    },
-                    theme::TEXT_HINT,
-                    self.fonts.small,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-                );
-                // 右侧：完整状态文字
-                let page_range = if result.entries.is_empty() {
-                    String::new()
-                } else {
-                    let page_size = visible_row_count(&plan.table_body).max(1);
-                    let start = self.page * page_size + 1;
-                    let end = ((self.page + 1) * page_size).min(result.entries.len());
-                    format!("查询到 {} 条，当前 {}-{}", result.total, start, end)
-                };
-                draw_text(
-                    hdc,
-                    &page_range,
-                    RECT {
-                        left: rect.right - 200,
-                        top: rect.bottom - 44,
-                        right: rect.right - 16,
-                        bottom: rect.bottom - 14,
-                    },
-                    theme::TEXT_MUTED,
-                    self.fonts.small,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-                );
-                EndPaint(self.hwnd, &ps);
-                return;
-            }
+        if rect.right <= 0 || rect.bottom <= 0 {
+            EndPaint(self.hwnd, &ps);
+            return;
         }
 
-        self.paint_buttons(hdc, &self.button_specs(rect));
+        let w = rect.right - rect.left;
+        let h = rect.bottom - rect.top;
 
-        // 底部状态栏
-        let status = if self.view.status.is_empty() {
-            if self.pinned {
-                "面板已固定".to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            self.view.status.clone()
-        };
+        // 创建内存 DC
+        let mem_hdc = CreateCompatibleDC(screen_hdc);
+        if mem_hdc.is_null() {
+            EndPaint(self.hwnd, &ps);
+            return;
+        }
 
-        // 左侧：快捷键提示
-        draw_text(
-            hdc,
-            "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
-            RECT {
-                left: 16,
-                top: rect.bottom - 44,
-                right: rect.right - 200,
-                bottom: rect.bottom - 14,
-            },
-            theme::TEXT_HINT,
-            self.fonts.small,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
+        // 创建内存位图
+        let mem_bmp = CreateCompatibleBitmap(screen_hdc, w, h);
+        if mem_bmp.is_null() {
+            DeleteDC(mem_hdc);
+            EndPaint(self.hwnd, &ps);
+            return;
+        }
 
-        // 右侧：状态文字
-        draw_text(
-            hdc,
-            &status,
-            RECT {
-                left: rect.right - 200,
-                top: rect.bottom - 44,
-                right: rect.right - 16,
-                bottom: rect.bottom - 14,
-            },
-            theme::TEXT_MUTED,
-            self.fonts.small,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
+        let old_bmp = SelectObject(mem_hdc, mem_bmp as HGDIOBJ);
 
+        // 所有绘制到 mem_hdc
+        self.paint_to_dc(mem_hdc, rect);
+
+        // 一次性 BitBlt 到屏幕
+        BitBlt(screen_hdc, 0, 0, w, h, mem_hdc, 0, 0, SRCCOPY);
+
+        // 恢复和释放
+        SelectObject(mem_hdc, old_bmp);
+        DeleteObject(mem_bmp as HGDIOBJ);
+        DeleteDC(mem_hdc);
         EndPaint(self.hwnd, &ps);
     }
 
@@ -1390,5 +1275,160 @@ impl OverlayRenderer for UiState {
         y += 18;
 
         y
+    }
+}
+
+impl UiState {
+    /// 实际绘制到指定 DC
+    unsafe fn paint_to_dc(&self, hdc: HDC, rect: RECT) {
+        // 整体背景
+        fill(hdc, rect, theme::BG_DARK);
+
+        // 标题栏背景
+        fill(
+            hdc,
+            RECT {
+                left: 0,
+                top: 0,
+                right: rect.right,
+                bottom: 52,
+            },
+            theme::BG_HEADER,
+        );
+
+        // 左侧绿色竖线
+        fill(
+            hdc,
+            RECT {
+                left: 0,
+                top: 0,
+                right: 5,
+                bottom: rect.bottom,
+            },
+            self.view.accent,
+        );
+
+        // 标题文字
+        draw_text(
+            hdc,
+            &self.view.title,
+            RECT {
+                left: 16,
+                top: 8,
+                right: rect.right - 170,
+                bottom: 30,
+            },
+            theme::TEXT_BRIGHT,
+            self.fonts.title,
+            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
+
+        // 副标题文字
+        draw_text(
+            hdc,
+            &self.view.subtitle,
+            RECT {
+                left: 16,
+                top: 30,
+                right: rect.right - 170,
+                bottom: 50,
+            },
+            theme::TEXT_MUTED,
+            self.fonts.small,
+            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
+
+        match &self.view.kind {
+            ViewKind::Message(lines) => self.paint_message(hdc, rect, lines),
+            ViewKind::Result(result) => {
+                self.paint_value_tier_badge(hdc, rect, result.value_tier);
+                let detail_lines = compute_item_detail_lines(&result.item);
+                let plan = LayoutPlan::compute(rect, detail_lines, result.item.mods.len());
+                self.paint_result(hdc, &plan, result);
+                let specs = self.button_specs(rect);
+                self.paint_buttons(hdc, &specs);
+                // 底部状态栏
+                // 左侧：快捷键提示
+                draw_text(
+                    hdc,
+                    "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
+                    RECT {
+                        left: 16,
+                        top: rect.bottom - 44,
+                        right: rect.right - 200,
+                        bottom: rect.bottom - 14,
+                    },
+                    theme::TEXT_HINT,
+                    self.fonts.small,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+                // 右侧：完整状态文字
+                let page_range = if result.entries.is_empty() {
+                    String::new()
+                } else {
+                    let page_size = visible_row_count(&plan.table_body).max(1);
+                    let start = self.page * page_size + 1;
+                    let end = ((self.page + 1) * page_size).min(result.entries.len());
+                    format!("查询到 {} 条，当前 {}-{}", result.total, start, end)
+                };
+                draw_text(
+                    hdc,
+                    &page_range,
+                    RECT {
+                        left: rect.right - 200,
+                        top: rect.bottom - 44,
+                        right: rect.right - 16,
+                        bottom: rect.bottom - 14,
+                    },
+                    theme::TEXT_MUTED,
+                    self.fonts.small,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+                return;
+            }
+        }
+
+        self.paint_buttons(hdc, &self.button_specs(rect));
+
+        // 底部状态栏
+        let status = if self.view.status.is_empty() {
+            if self.pinned {
+                "面板已固定".to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            self.view.status.clone()
+        };
+
+        // 左侧：快捷键提示
+        draw_text(
+            hdc,
+            "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
+            RECT {
+                left: 16,
+                top: rect.bottom - 44,
+                right: rect.right - 200,
+                bottom: rect.bottom - 14,
+            },
+            theme::TEXT_HINT,
+            self.fonts.small,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
+
+        // 右侧：状态文字
+        draw_text(
+            hdc,
+            &status,
+            RECT {
+                left: rect.right - 200,
+                top: rect.bottom - 44,
+                right: rect.right - 16,
+                bottom: rect.bottom - 14,
+            },
+            theme::TEXT_MUTED,
+            self.fonts.small,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+        );
     }
 }
