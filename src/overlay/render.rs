@@ -15,7 +15,8 @@ use crate::overlay::layout::{
 use crate::overlay::model::{UiButton, ViewKind};
 use crate::overlay::theme;
 use crate::{
-    ItemValueTier, SortOrder, TradeResult, UiState, friendly_indexed_time, rgb, sort_entries, wide,
+    ItemValueTier, SortOrder, TradeResult, UiState, friendly_indexed_time, rgb,
+    visible_listing_indices, wide,
 };
 
 pub unsafe fn fill(hdc: HDC, rect: RECT, color: u32) {
@@ -608,9 +609,7 @@ impl OverlayRenderer for UiState {
         // ── 挂单列表 ──
         let table_top = plan.table_header.top;
         let header_height = (plan.table_header.bottom - plan.table_header.top).max(28);
-        let available_height = plan.table_body.bottom - plan.table_body.top;
         let row_height = 24;
-        let visible_rows = ((available_height - header_height) / row_height).max(0) as usize;
 
         // 列宽计算（使用统一的 compute_column_layout）
         let col = compute_column_layout(plan.table_header.right - 20);
@@ -770,17 +769,14 @@ impl OverlayRenderer for UiState {
         }
 
         // 排序后分页显示
-        let mut sorted_entries = result.entries.clone();
-        sort_entries(&mut sorted_entries, self.current_sort);
+        let visible = visible_listing_indices(
+            &result.entries,
+            self.current_sort,
+            self.page,
+            result.page_size,
+        );
 
-        let display_count = min(page_size, visible_rows);
-        let visible_entries = sorted_entries
-            .iter()
-            .skip(page * page_size)
-            .take(display_count)
-            .collect::<Vec<_>>();
-
-        for (idx, entry) in visible_entries.iter().enumerate() {
+        for (idx, (_orig_idx, entry)) in visible.iter().enumerate() {
             let top = table_top + header_height + idx as i32 * row_height;
             let bg = if idx % 2 == 0 {
                 theme::BG_ROW_EVEN
@@ -793,7 +789,7 @@ impl OverlayRenderer for UiState {
                 right: col_action_x + col.action,
                 bottom: top + row_height,
             };
-            if visible_rows > 0 && idx == visible_entries.len() - 1 {
+            if !visible.is_empty() && idx == visible.len() - 1 {
                 rounded_rect(hdc, row_rect, bg, bg, 8);
             } else {
                 fill(hdc, row_rect, bg);

@@ -11,6 +11,7 @@
 - 新增 `Backdrop` 标题栏热区（不可见）和 `OpenTrade` 按钮变体。
 - 列布局计算统一为 `compute_column_layout()` 函数，渲染和按钮热区共用同一套列宽。
 - 新增布局不重叠测试 `layout_plan_rects_dont_overlap` 和 Y 坐标顺序测试 `layout_plan_rects_sequential_y`。
+- 修复挂单排序、分页和私聊按钮之间的索引错位：引入 `visible_listing_indices` 统一函数，排序时保留原始索引，确保渲染表格和 Whisper 按钮引用同一原始条目；私聊复制优先使用服务端返回的 `whisper_text`。
 
 ## 0.4.0
 

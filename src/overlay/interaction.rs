@@ -215,10 +215,14 @@ impl OverlayInteraction for UiState {
             InvalidateRect(self.hwnd, std::ptr::null(), 1);
             return;
         };
-        let message = format!(
-            "@{} Hi, I'd like to buy your {} listed for {} in {}",
-            entry.seller, entry.item_name, entry.price, result.league
-        );
+        let message = if let Some(ref whisper) = entry.whisper_text {
+            whisper.clone()
+        } else {
+            format!(
+                "@{} Hi, I'd like to buy your {} listed for {} in {}",
+                entry.seller, entry.item_name, entry.price, result.league
+            )
+        };
         match copy_text_to_clipboard(&message) {
             Ok(_) => {
                 self.view.status = format!("已复制 whisper 消息: @{}", entry.seller);

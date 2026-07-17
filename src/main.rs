@@ -1603,6 +1603,35 @@ pub(crate) fn sort_entries(entries: &mut [TradeEntry], order: SortOrder) {
     }
 }
 
+/// 返回当前页面上可见的挂单在原始 entries 中的索引
+/// 排序后分页，返回 (原始索引, TradeEntry引用) 的列表
+pub(crate) fn visible_listing_indices(
+    entries: &[TradeEntry],
+    sort: SortOrder,
+    page: usize,
+    page_size: usize,
+) -> Vec<(usize, &TradeEntry)> {
+    let mut indexed: Vec<(usize, &TradeEntry)> = entries.iter().enumerate().collect();
+
+    match sort {
+        SortOrder::PriceAsc => indexed.sort_by(|a, b| TradeEntry::compare_price(a.1, b.1)),
+        SortOrder::PriceDesc => indexed.sort_by(|a, b| TradeEntry::compare_price(b.1, a.1)),
+        SortOrder::ItemLevelDesc => {
+            indexed.sort_by(|a, b| TradeEntry::compare_item_level(a.1, b.1))
+        }
+        SortOrder::IndexedTimeAsc => {
+            indexed.sort_by(|a, b| TradeEntry::compare_indexed_time(a.1, b.1))
+        }
+        SortOrder::OnlineFirst => indexed.sort_by(|a, b| {
+            TradeEntry::compare_online(a.1, b.1).then_with(|| TradeEntry::compare_price(a.1, b.1))
+        }),
+    }
+
+    let start = page * page_size;
+    let end = (start + page_size).min(indexed.len());
+    indexed[start..end].to_vec()
+}
+
 /// 将 ISO 8601 时间字符串转换为易读文本
 #[allow(dead_code)]
 fn relative_time(iso_time: &str) -> String {
@@ -4899,5 +4928,65 @@ mod tests {
         let text = "品质: +20%\n--------";
         let item = parse_item_text(text);
         assert_eq!(item.quality, Some(20));
+    }
+
+    #[test]
+    fn visible_indices_preserve_original_after_sort() {
+        let entries = vec![
+            TradeEntry {
+                seller: "A".into(),
+                price: "3 chaos".into(),
+                price_amount: Some(3.0),
+                ..Default::default()
+            },
+            TradeEntry {
+                seller: "B".into(),
+                price: "1 chaos".into(),
+                price_amount: Some(1.0),
+                ..Default::default()
+            },
+            TradeEntry {
+                seller: "C".into(),
+                price: "2 chaos".into(),
+                price_amount: Some(2.0),
+                ..Default::default()
+            },
+        ];
+        let visible = visible_listing_indices(&entries, SortOrder::PriceAsc, 0, 10);
+        // 排序后 B(1.0), C(2.0), A(3.0)
+        assert_eq!(visible[0].0, 1); // B 原始索引 1
+        assert_eq!(visible[0].1.seller, "B");
+        assert_eq!(visible[1].0, 2); // C 原始索引 2
+        assert_eq!(visible[2].0, 0); // A 原始索引 0
+    }
+
+    #[test]
+    fn visible_indices_respect_pagination() {
+        let entries: Vec<TradeEntry> = (0..20)
+            .map(|i| TradeEntry {
+                seller: format!("Seller{i}"),
+                price: format!("{i} chaos"),
+                price_amount: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let page0 = visible_listing_indices(&entries, SortOrder::PriceAsc, 0, 5);
+        let page1 = visible_listing_indices(&entries, SortOrder::PriceAsc, 1, 5);
+        assert_eq!(page0.len(), 5);
+        assert_eq!(page1.len(), 5);
+        // 确保没有重复索引
+        let all_indices: Vec<usize> = page0
+            .iter()
+            .map(|(i, _)| *i)
+            .chain(page1.iter().map(|(i, _)| *i))
+            .collect();
+        let mut unique: Vec<usize> = all_indices.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            all_indices.len(),
+            unique.len(),
+            "indices should be unique across pages"
+        );
     }
 }

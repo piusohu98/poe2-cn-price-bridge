@@ -1,10 +1,8 @@
-use std::cmp::min;
-
 use windows_sys::Win32::Foundation::RECT;
 
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::model::{UiButton, UiButtonSpec};
-use crate::{UiState, ViewKind};
+use crate::{UiState, ViewKind, visible_listing_indices};
 
 pub fn rect_contains(rect: &RECT, x: i32, y: i32) -> bool {
     x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
@@ -691,19 +689,20 @@ impl OverlayLayout for UiState {
 
         // 私聊按钮（可见）
         let visible_rows = visible_row_count(&plan.table_body);
-        let page_size = result.page_size.max(1);
-        let pages = std::cmp::max(1, result.entries.len().div_ceil(page_size));
-        let page = min(self.page, pages - 1);
-        let visible_start = page * page_size;
-        let visible_entries = result.entries.iter().skip(visible_start).take(page_size);
-        for (idx, _entry) in visible_entries.enumerate() {
+        let visible = visible_listing_indices(
+            &result.entries,
+            self.current_sort,
+            self.page,
+            result.page_size,
+        );
+        for (idx, (orig_idx, _entry)) in visible.iter().enumerate() {
             if idx >= visible_rows {
                 break;
             }
             let ry = plan.table_body.top + 2 + idx as i32 * 24;
             let cx = plan.table_body.right - 50;
             specs.push(UiButtonSpec {
-                button: UiButton::Whisper(visible_start + idx),
+                button: UiButton::Whisper(*orig_idx),
                 label: "私聊".to_string(),
                 rect: RECT {
                     left: cx,
