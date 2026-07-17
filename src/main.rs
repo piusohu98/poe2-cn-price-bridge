@@ -64,7 +64,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::layout;
-use crate::overlay::layout::OverlayLayout;
+use crate::overlay::layout::{LayoutPlan, OverlayLayout, compute_item_detail_lines};
 use crate::overlay::model::{Fonts, OverlayEvent, OverlayView, UiButton, ViewKind, WindowPos};
 use crate::overlay::render::OverlayRenderer;
 
@@ -3423,7 +3423,20 @@ impl UiState {
                     kind: ViewKind::Result(result),
                 };
                 let height = match &self.view.kind {
-                    ViewKind::Result(result) if result.entries.is_empty() => 480,
+                    ViewKind::Result(result) => {
+                        let detail_lines = compute_item_detail_lines(&result.item);
+                        let modifier_count = result.item.mods.len();
+                        let entry_count = result.entries.len();
+                        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                        let max_height = screen_h * 90 / 100;
+                        LayoutPlan::suggested_height(
+                            detail_lines,
+                            modifier_count,
+                            entry_count,
+                            480,
+                            max_height,
+                        )
+                    }
                     _ => 780,
                 };
                 self.show_panel(580, height, timeout);

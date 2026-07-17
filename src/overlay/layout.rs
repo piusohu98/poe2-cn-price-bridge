@@ -1,4 +1,4 @@
-use windows_sys::Win32::Foundation::RECT;
+﻿use windows_sys::Win32::Foundation::RECT;
 
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::model::{UiButton, UiButtonSpec};
@@ -100,6 +100,37 @@ impl LayoutPlan {
             table_body,
             footer,
         }
+    }
+
+    /// 计算建议窗口高度，根据内容动态调整
+    /// - item_detail_lines: 物品详情行数
+    /// - modifier_count: 词缀数量
+    /// - entry_count: 实际挂单数
+    /// - min_height: 最小高度 (默认 480)
+    /// - max_height: 最大高度 (显示器工作区 90%)
+    pub fn suggested_height(
+        item_detail_lines: i32,
+        modifier_count: usize,
+        entry_count: usize,
+        min_height: i32,
+        max_height: i32,
+    ) -> i32 {
+        let fixed_height = 52 + 4 + // 标题栏
+            item_detail_lines * 20 + 8 + 4 + // 物品详情
+            (modifier_count.min(8) as i32) * 22 + 28 + 4 + // 词缀
+            20 + 24 + 4 + // 筛选状态 + 动作
+            48 + 4 + // 价格摘要
+            24 + // 表头
+            48; // 底部状态栏
+
+        let row_height = 24;
+        let min_table_rows = 3;
+        let max_table_rows = 20;
+        let table_rows = entry_count.max(min_table_rows).min(max_table_rows) as i32;
+        let table_height = table_rows * row_height;
+
+        let total = fixed_height + table_height;
+        total.max(min_height).min(max_height)
     }
 
     /// 返回所有区域的矩形列表，用于重叠检测
@@ -494,8 +525,10 @@ impl OverlayLayout for UiState {
     ) -> Vec<UiButtonSpec> {
         let has_url = !self.view.current_url.is_empty();
         let has_mods = !result.item.mods.is_empty();
+        let visible_rows = visible_row_count(&plan.table_body);
+        let page_size = visible_rows.max(1);
         let can_prev = self.page > 0;
-        let can_next = (self.page + 1) * result.page_size < result.entries.len();
+        let can_next = (self.page + 1) * page_size < result.entries.len();
 
         let mut specs = Vec::new();
 
@@ -689,12 +722,8 @@ impl OverlayLayout for UiState {
 
         // 私聊按钮（可见）
         let visible_rows = visible_row_count(&plan.table_body);
-        let visible = visible_listing_indices(
-            &result.entries,
-            self.current_sort,
-            self.page,
-            result.page_size,
-        );
+        let visible =
+            visible_listing_indices(&result.entries, self.current_sort, self.page, page_size);
         for (idx, (orig_idx, _entry)) in visible.iter().enumerate() {
             if idx >= visible_rows {
                 break;

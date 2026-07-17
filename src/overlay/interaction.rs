@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+﻿use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::InvalidateRect;

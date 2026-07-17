@@ -10,7 +10,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
 
 use crate::overlay::layout::{
-    LayoutPlan, OverlayLayout, compute_column_layout, compute_item_detail_lines,
+    LayoutPlan, OverlayLayout, compute_column_layout, compute_item_detail_lines, visible_row_count,
 };
 use crate::overlay::model::{UiButton, ViewKind};
 use crate::overlay::theme;
@@ -385,7 +385,8 @@ impl OverlayRenderer for UiState {
         let _control_y = plan.filter_status.top;
 
         // ── 搜索控制栏 ──
-        let page_size = result.page_size.max(1);
+        let visible_rows = visible_row_count(&plan.table_body);
+        let page_size = visible_rows.max(1);
         let pages = max(1, result.entries.len().div_ceil(page_size));
         let page = min(self.page, pages - 1);
         let detected_mods = result.item.mods.len();
@@ -769,12 +770,8 @@ impl OverlayRenderer for UiState {
         }
 
         // 排序后分页显示
-        let visible = visible_listing_indices(
-            &result.entries,
-            self.current_sort,
-            self.page,
-            result.page_size,
-        );
+        let visible =
+            visible_listing_indices(&result.entries, self.current_sort, self.page, page_size);
 
         for (idx, (_orig_idx, entry)) in visible.iter().enumerate() {
             let top = table_top + header_height + idx as i32 * row_height;
