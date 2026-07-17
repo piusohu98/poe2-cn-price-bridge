@@ -6,16 +6,19 @@
 
 - 新增独立的 `QingPriceLogin.exe` 登录 PoC，使用 .NET Framework 4.8 WPF 和 `Microsoft.Web.WebView2` 1.0.4078.44。
 - 新增 Rust `--set-cookie-stdin` 桥接入口，仅接受裸 POESESSID，并在国服 trade2 验证通过后使用 DPAPI 保存。
-- 登录助手增加腾讯国服交易站、QQ 登录和微信扫码登录所需的精确 HTTPS 导航白名单。
+- 登录助手仅保留已人工验证的腾讯国服交易站和微信扫码登录精确 HTTPS 导航白名单，暂不宣称支持 QQ 登录。
 - CI 和发布验证增加登录助手构建、离线策略自检、stdin 合成 Secret 泄露测试及验证失败不保存测试。
 
 ### Changed
 
+- WebView2 依赖使用锁文件恢复，登录助手版本由 `Cargo.toml` 统一注入，发布包附带当前锁定版本的 LICENSE 与 NOTICE。
 - Windows CI 固定到 `windows-2022`，发布包增加登录助手所需的最小 WebView2 托管程序集和 x64 Loader。
 - 自动登录检测仅在返回国服交易站且 Cookie 发生变化后执行；自动失败不再弹窗打断扫码。
 
 ### Security
 
+- 登录助手使用全局单实例互斥，启动时在严格路径边界内有界回收崩溃遗留 UDF；验证、浏览数据清理和子进程退出均设置超时。
+- WebView2 显式关闭自动填充、密码保存、开发者工具、右键菜单和下载，拒绝权限及证书错误，并限制为 HTTPS 443 白名单导航。
 - WebView2 使用独立的 `%TEMP%\QingPriceLogin\<GUID>` 用户数据目录，退出前清除 Cookie 和浏览数据，并校验删除边界后清理目录。
 - 登录助手不读取浏览器用户数据、不注入脚本、不读取账号、密码、QQ 号或二维码内容；Cookie 不进入命令行、日志、剪贴板或临时文件。
 - 候选 Cookie 验证失败不会覆盖现有 DPAPI 存储；错误返回会按运行时已知 Secret 再次脱敏。
@@ -54,6 +57,8 @@
 
 ### Changed
 
+- WebView2 依赖使用锁文件恢复，登录助手版本由 `Cargo.toml` 统一注入，发布包附带当前锁定版本的 LICENSE 与 NOTICE。
+
 - 错误页改为可读分类，并提供向导、设置 Cookie、验证 Cookie、历史和诊断快捷按钮。
 - 图标改为“清”字品牌图标。
 - 客户窗口统一为更现代的 WPF 深色 UI，减少系统默认控件感。
@@ -62,6 +67,9 @@
 - 增加 `tools/verify_release.ps1` 自动验证发布包。
 
 ### Security
+
+- 登录助手使用全局单实例互斥，启动时在严格路径边界内有界回收崩溃遗留 UDF；验证、浏览数据清理和子进程退出均设置超时。
+- WebView2 显式关闭自动填充、密码保存、开发者工具、右键菜单和下载，拒绝权限及证书错误，并限制为 HTTPS 443 白名单导航。
 
 - Cookie 使用 Windows DPAPI 加密保存到当前 Windows 用户。
 - 诊断、自检、历史和崩溃报告不输出明文 Cookie。

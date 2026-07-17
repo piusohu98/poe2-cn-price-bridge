@@ -53,7 +53,10 @@ function Invoke-BridgeStdinCommand {
         $stderrTask = $process.StandardError.ReadToEndAsync()
         $process.StandardInput.Write($InputValue)
         $process.StandardInput.Close()
-        $process.WaitForExit()
+        if (-not $process.WaitForExit(60000)) {
+            & taskkill.exe /PID $process.Id /T /F | Out-Null
+            throw 'stdin bridge process timed out'
+        }
         return [pscustomobject]@{
             ExitCode = $process.ExitCode
             Stdout = $stdoutTask.Result
@@ -90,6 +93,8 @@ $requiredFiles = @(
     'Microsoft.Web.WebView2.Core.dll',
     'Microsoft.Web.WebView2.Wpf.dll',
     'WebView2Loader.dll',
+    'licenses\Microsoft.Web.WebView2-LICENSE.txt',
+    'licenses\Microsoft.Web.WebView2-NOTICE.txt',
     'StartHere.bat',
     '开始使用.bat',
     'ControlCenter.bat',
@@ -155,6 +160,37 @@ $expectedHash = (Get-Content -LiteralPath $checksumPath -Raw).Trim().Split()[0]
 $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
 Assert-Ok ($actualHash -eq $expectedHash) "sha256 matches zip"
 
+$webView2Version = '1.0.4078.44'
+$webView2LicenseHash = '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
+$webView2NoticeHash = '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
+$webView2LicensePath = Join-Path $packageDir 'licenses\Microsoft.Web.WebView2-LICENSE.txt'
+$webView2NoticePath = Join-Path $packageDir 'licenses\Microsoft.Web.WebView2-NOTICE.txt'
+Assert-Ok ((Get-Item -LiteralPath $webView2LicensePath).Length -gt 0) "WebView2 license is non-empty"
+Assert-Ok ((Get-Item -LiteralPath $webView2NoticePath).Length -gt 0) "WebView2 notice is non-empty"
+Assert-Ok ((Get-FileHash -LiteralPath $webView2LicensePath -Algorithm SHA256).Hash -eq $webView2LicenseHash) "WebView2 license matches locked package"
+Assert-Ok ((Get-FileHash -LiteralPath $webView2NoticePath -Algorithm SHA256).Hash -eq $webView2NoticeHash) "WebView2 notice matches locked package"
+$loginProjectText = Get-Content -LiteralPath (Join-Path $rootPath 'login\QingPriceLogin\QingPriceLogin.csproj') -Raw -Encoding UTF8
+Assert-Ok ($loginProjectText -match ('Microsoft\.Web\.WebView2" Version="\[' + [regex]::Escape($webView2Version) + '\]"')) "WebView2 PackageReference is exact"
+$loginLock = Get-Content -LiteralPath (Join-Path $rootPath 'login\QingPriceLogin\packages.lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$lockedVersions = @($loginLock.dependencies.PSObject.Properties | ForEach-Object { $_.Value.'Microsoft.Web.WebView2'.resolved } | Select-Object -Unique)
+Assert-Ok ($lockedVersions.Count -eq 1 -and $lockedVersions[0] -eq $webView2Version) "WebView2 lock file matches packaged licenses"
+
+# 从 PE 头读取 Machine 字段，确保发布包没有混入 x86/ARM64 Loader。
+$loaderPath = Join-Path $packageDir 'WebView2Loader.dll'
+$loaderStream = [IO.File]::OpenRead($loaderPath)
+$loaderReader = New-Object IO.BinaryReader($loaderStream)
+try {
+    $loaderStream.Position = 0x3c
+    $peOffset = $loaderReader.ReadInt32()
+    $loaderStream.Position = $peOffset
+    $peSignature = $loaderReader.ReadUInt32()
+    $peMachine = $loaderReader.ReadUInt16()
+} finally {
+    $loaderReader.Dispose()
+    $loaderStream.Dispose()
+}
+Assert-Ok ($peSignature -eq 0x00004550) "WebView2Loader.dll has a valid PE signature"
+Assert-Ok ($peMachine -eq 0x8664) "WebView2Loader.dll is x64"
 $loginSelfTestExit = Invoke-BridgeCommand -FilePath $loginExePath -Arguments @('--self-test')
 Assert-Ok ($loginSelfTestExit -eq 0) "login helper offline self-test passes"
 
@@ -173,12 +209,19 @@ Assert-Ok ($versionText -match 'support_bundle:\s*SupportBundle\.bat') "VERSION.
 Assert-Ok ($versionText -match 'support_bundle_zh:\s*生成支持包\.bat') "VERSION.txt lists Chinese support bundle"
 Assert-Ok ($versionText -match 'reset_data:\s*ResetData\.bat') "VERSION.txt lists reset"
 Assert-Ok ($versionText -match 'uninstall:\s*Uninstall\.bat') "VERSION.txt lists uninstall"
+Assert-Ok ($versionText -match 'third_party_webview2:\s*licenses\\Microsoft\.Web\.WebView2-LICENSE\.txt') "VERSION.txt lists WebView2 license"
+Assert-Ok ($versionText -match 'third_party_webview2_notice:\s*licenses\\Microsoft\.Web\.WebView2-NOTICE\.txt') "VERSION.txt lists WebView2 notice"
 
 $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($exePath)
 Assert-Ok ($versionInfo.ProductName -eq 'QingPrice POE2') "exe product name is set"
 Assert-Ok ($versionInfo.FileDescription -eq 'QingPrice POE2 CN price checker') "exe file description is set"
 Assert-Ok ($versionInfo.OriginalFilename -eq 'QingPricePOE2.exe') "exe original filename is set"
 Assert-Ok ($versionInfo.FileVersion -eq $version) "exe file version matches Cargo.toml"
+$loginVersionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($loginExePath)
+Assert-Ok ($loginVersionInfo.FileVersion -eq "$version.0") "login exe file version matches Cargo.toml"
+Assert-Ok ($loginVersionInfo.ProductVersion -match ('^' + [regex]::Escape($version))) "login exe product version matches Cargo.toml"
+$loginAssemblyVersion = [Reflection.AssemblyName]::GetAssemblyName($loginExePath).Version.ToString()
+Assert-Ok ($loginAssemblyVersion -eq "$version.0") "login exe assembly version matches Cargo.toml"
 
 Add-Type -AssemblyName System.Drawing
 $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
@@ -301,7 +344,7 @@ try {
 
     $syntheticSecret = ('SYNTHETIC_' + 'POESESSID_' + '7f3a91d2')
     $stdinResult = Invoke-BridgeStdinCommand -FilePath $exePath -InputValue $syntheticSecret
-    Assert-Ok ($stdinResult.ExitCode -ne 0) "invalid synthetic stdin Cookie is rejected"
+    Assert-Ok ($stdinResult.ExitCode -ne 0) "synthetic stdin Cookie is not accepted"
     Assert-Ok (-not $stdinResult.Stdout.Contains($syntheticSecret)) "stdin bridge stdout does not expose synthetic secret"
     Assert-Ok (-not $stdinResult.Stderr.Contains($syntheticSecret)) "stdin bridge stderr does not expose synthetic secret"
     $isolatedConfig = Join-Path $env:APPDATA 'poe2_cn_price_bridge\config.json'

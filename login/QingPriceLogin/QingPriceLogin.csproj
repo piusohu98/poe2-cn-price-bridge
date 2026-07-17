@@ -9,8 +9,15 @@
     <RootNamespace>QingPriceLogin</RootNamespace>
     <LangVersion>latest</LangVersion>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <Version>$(QingPriceVersion)</Version>
+    <FileVersion>$(QingPriceVersion).0</FileVersion>
+    <AssemblyVersion>$(QingPriceVersion).0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="[1.0.4078.44]" />
   </ItemGroup>
+  <Target Name="RequireUnifiedVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(QingPriceVersion)' == ''" Text="QingPriceVersion is required and must come from Cargo.toml." />
+  </Target>
 </Project>

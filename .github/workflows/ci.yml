@@ -30,8 +30,9 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Build login PoC
-        run: dotnet build login/QingPriceLogin/QingPriceLogin.csproj -c Release
+      - name: Build login PoC with locked restore
+        shell: pwsh
+        run: ./tools/build_login.ps1
 
       - name: Test login PoC policy
         shell: pwsh

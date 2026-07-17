@@ -5,8 +5,16 @@
 
 $ErrorActionPreference = 'Stop'
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
-$loginProject = Join-Path $rootPath 'login\QingPriceLogin\QingPriceLogin.csproj'
 $loginOutput = Join-Path $rootPath 'login\QingPriceLogin\bin\Release\net48'
+$cargoToml = Get-Content -LiteralPath (Join-Path $rootPath 'Cargo.toml') -Raw -Encoding UTF8
+if ($cargoToml -notmatch '(?m)^version\s*=\s*"(\d+\.\d+\.\d+)"\s*$') {
+    throw 'Cannot read version from Cargo.toml'
+}
+$version = $Matches[1]
+$webView2Version = '1.0.4078.44'
+$webView2LicenseRoot = Join-Path $rootPath "third_party\Microsoft.Web.WebView2\$webView2Version"
+$webView2LicenseHash = '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
+$webView2NoticeHash = '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
 
 & (Join-Path $PSScriptRoot 'make_icon.ps1') -Root $rootPath
 
@@ -25,22 +33,12 @@ if (-not $SkipBuild) {
     } finally {
         Pop-Location
     }
-}
 
-
-if (-not $SkipBuild) {
-    dotnet build $loginProject -c Release
+    & (Join-Path $PSScriptRoot 'build_login.ps1') -Root $rootPath -Configuration Release
     if ($LASTEXITCODE -ne 0) {
-        throw "QingPriceLogin build failed with exit code $LASTEXITCODE"
+        throw "QingPriceLogin locked build failed with exit code $LASTEXITCODE"
     }
 }
-
-$cargoToml = Get-Content -LiteralPath (Join-Path $rootPath 'Cargo.toml') -Raw
-if ($cargoToml -notmatch 'version\s*=\s*"([^"]+)"') {
-    throw 'Cannot read version from Cargo.toml'
-}
-$version = $Matches[1]
-
 $distRoot = Join-Path $rootPath 'dist'
 $packageName = "QingPricePOE2-v$version-windows-x64"
 $packageDir = Join-Path $distRoot $packageName
@@ -52,6 +50,7 @@ if (Test-Path -LiteralPath $packageDir) {
 }
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'assets') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'licenses') | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe') -Destination (Join-Path $packageDir 'QingPricePOE2.exe') -Force
 $loginFiles = @(
@@ -64,6 +63,16 @@ $loginFiles = @(
 foreach ($loginFile in $loginFiles) {
     Copy-Item -LiteralPath (Join-Path $loginOutput $loginFile) -Destination (Join-Path $packageDir $loginFile) -Force
 }
+$licenseSource = Join-Path $webView2LicenseRoot 'LICENSE.txt'
+$noticeSource = Join-Path $webView2LicenseRoot 'NOTICE.txt'
+if ((Get-FileHash -LiteralPath $licenseSource -Algorithm SHA256).Hash -ne $webView2LicenseHash) {
+    throw "WebView2 $webView2Version LICENSE.txt hash mismatch"
+}
+if ((Get-FileHash -LiteralPath $noticeSource -Algorithm SHA256).Hash -ne $webView2NoticeHash) {
+    throw "WebView2 $webView2Version NOTICE.txt hash mismatch"
+}
+Copy-Item -LiteralPath $licenseSource -Destination (Join-Path $packageDir 'licenses\Microsoft.Web.WebView2-LICENSE.txt') -Force
+Copy-Item -LiteralPath $noticeSource -Destination (Join-Path $packageDir 'licenses\Microsoft.Web.WebView2-NOTICE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $rootPath 'first_run_wizard.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootPath 'control_center.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootPath 'history_gui.ps1') -Destination $packageDir -Force
@@ -102,6 +111,9 @@ support_bundle: SupportBundle.bat
 support_bundle_zh: 生成支持包.bat
 reset_data: ResetData.bat
 uninstall: Uninstall.bat
+
+third_party_webview2: licenses\Microsoft.Web.WebView2-LICENSE.txt
+third_party_webview2_notice: licenses\Microsoft.Web.WebView2-NOTICE.txt
 
 隐私说明:
 - Cookie 使用 Windows DPAPI 加密保存到当前 Windows 用户。

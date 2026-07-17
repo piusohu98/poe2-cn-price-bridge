@@ -1,10 +1,10 @@
 using Microsoft.Web.WebView2.Core;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -18,6 +18,7 @@ namespace QingPriceLogin
         private readonly DispatcherTimer _cookieTimer;
         private bool _checkingCookie;
         private string _lastAttemptedCookieFingerprint;
+        private CancellationTokenSource _validationCancellation;
         private bool _cleanupStarted;
         private bool _allowClose;
 
@@ -49,7 +50,7 @@ namespace QingPriceLogin
                 await Browser.EnsureCoreWebView2Async(environment);
                 ConfigureBrowser();
                 CheckButton.IsEnabled = true;
-                StatusText.Text = "请完成 QQ 登录；登录成功后助手会自动检查。";
+                StatusText.Text = "请使用微信扫码登录；登录成功后助手会自动检查。";
                 _cookieTimer.Start();
                 Browser.Source = new Uri(LoginPolicy.TradeUri);
             }
@@ -69,16 +70,22 @@ namespace QingPriceLogin
             }
             catch (Exception)
             {
-                StatusText.Text = "WebView2 初始化失败。";
-                MessageBox.Show("登录窗口初始化失败；未记录异常详情或任何 Cookie。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusText.Text = "WebView2 初始化或安全配置失败。";
+                MessageBox.Show(
+                    "登录窗口安全初始化失败。请升级 Microsoft Edge WebView2 Runtime 后重试；未记录异常详情或任何 Cookie。",
+                    "清价登录助手",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
                 Close();
             }
         }
 
-        /// 关闭开发工具、下载和权限请求，并对顶层、框架及弹窗导航使用同一白名单。
+        /// 显式关闭自动填充、密码保存、开发工具、右键和下载，并默认拒绝权限与证书错误。
         private void ConfigureBrowser()
         {
             var core = Browser.CoreWebView2;
+            core.Settings.IsGeneralAutofillEnabled = false;
+            core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
@@ -87,6 +94,7 @@ namespace QingPriceLogin
             core.NewWindowRequested += Core_NewWindowRequested;
             core.DownloadStarting += (sender, args) => args.Cancel = true;
             core.PermissionRequested += (sender, args) => args.State = CoreWebView2PermissionState.Deny;
+            core.ServerCertificateErrorDetected += (sender, args) => args.Action = LoginPolicy.CertificateErrorAction;
             core.NavigationCompleted += Core_NavigationCompleted;
         }
 
@@ -155,28 +163,32 @@ namespace QingPriceLogin
             StatusText.Text = "已阻止不在白名单中的导航：" + host;
         }
 
-        /// 获取适用于国服目标 URI 的 Cookie，只向 Rust 传递 POESESSID 的值。
+        /// CookieManager 已按国服 URI 筛选；枚举时先判断名称，避免读取其他腾讯 Cookie 的 Value。
         private async Task CheckLoginAsync(bool userInitiated)
         {
-            if (_checkingCookie || Browser.CoreWebView2 == null)
+            if (_checkingCookie || Browser.CoreWebView2 == null || _cleanupStarted)
             {
                 return;
             }
 
             _checkingCookie = true;
+            var cancellation = new CancellationTokenSource();
+            _validationCancellation = cancellation;
             try
             {
                 var cookies = await Browser.CoreWebView2.CookieManager.GetCookiesAsync(LoginPolicy.CookieUri);
-                var candidates = cookies.Select(cookie => new CookieCandidate(
-                    cookie.Name,
-                    cookie.Value,
-                    cookie.Domain,
-                    cookie.Path,
-                    cookie.IsSession ? DateTime.MinValue : cookie.Expires));
+                var candidates = cookies
+                    .Where(cookie => string.Equals(cookie.Name, "POESESSID", StringComparison.Ordinal))
+                    .Select(cookie => new CookieCandidate(
+                        cookie.Name,
+                        cookie.Value,
+                        cookie.Domain,
+                        cookie.Path,
+                        cookie.IsSession ? DateTime.MinValue : cookie.Expires));
                 var selected = LoginPolicy.SelectPoeSession(candidates, DateTime.UtcNow);
                 if (selected == null)
                 {
-                    StatusText.Text = "尚未取得 POESESSID，请继续完成登录。";
+                    StatusText.Text = "尚未取得 POESESSID，请继续完成微信登录。";
                     return;
                 }
 
@@ -185,7 +197,7 @@ namespace QingPriceLogin
                 {
                     if (Browser.Source == null || !string.Equals(Browser.Source.IdnHost, "poe.game.qq.com", StringComparison.OrdinalIgnoreCase))
                     {
-                        StatusText.Text = "请先完成 QQ 或微信登录，返回国服交易站后会自动验证。";
+                        StatusText.Text = "请先完成微信登录，返回国服交易站后会自动验证。";
                     }
                     return;
                 }
@@ -200,19 +212,37 @@ namespace QingPriceLogin
 
                 StatusText.Text = "已取得登录状态，正在通过国服接口验证……";
                 CheckButton.IsEnabled = false;
-                var exitCode = await LoginBridge.SendPoeSessionAsync(_bridgePath, selected.Value);
-                if (exitCode == 0)
+                var result = await LoginBridge.SendPoeSessionAsync(
+                    _bridgePath,
+                    selected.Value,
+                    LoginPolicy.BridgeTimeout,
+                    cancellation.Token);
+                if (result == BridgeResult.Accepted)
                 {
                     StatusText.Text = "登录验证成功，POESESSID 已由主程序加密保存。";
                     MessageBox.Show("登录验证成功。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
                     Close();
                     return;
                 }
+                if (result == BridgeResult.Cancelled)
+                {
+                    StatusText.Text = "登录验证已取消。";
+                    return;
+                }
+                if (result == BridgeResult.TimedOut)
+                {
+                    StatusText.Text = "登录验证超时，子进程已终止。";
+                    if (userInitiated)
+                    {
+                        MessageBox.Show("验证超时。登录助手未保存 Cookie，错误信息不包含 Secret。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    return;
+                }
 
-                StatusText.Text = "登录状态未通过国服接口验证，请重新登录后再试。";
+                StatusText.Text = "登录状态未被接受，请重新登录后再试。";
                 if (userInitiated)
                 {
-                    MessageBox.Show("验证失败。登录助手未保存该 Cookie，也不会显示验证详情。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("验证未通过。登录助手未保存 Cookie，也不会显示验证详情。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             catch (Exception)
@@ -221,6 +251,11 @@ namespace QingPriceLogin
             }
             finally
             {
+                if (ReferenceEquals(_validationCancellation, cancellation))
+                {
+                    _validationCancellation = null;
+                }
+                cancellation.Dispose();
                 _checkingCookie = false;
                 if (!_cleanupStarted)
                 {
@@ -229,7 +264,7 @@ namespace QingPriceLogin
             }
         }
 
-        /// 退出前先清空 WebView2 数据，再重试删除独立的临时用户数据目录。
+        /// 退出前取消验证，有限等待浏览数据清理，再有限重试删除本次 UDF。
         protected override async void OnClosing(CancelEventArgs e)
         {
             if (_allowClose)
@@ -247,12 +282,16 @@ namespace QingPriceLogin
             _cleanupStarted = true;
             CheckButton.IsEnabled = false;
             _cookieTimer.Stop();
+            if (_validationCancellation != null)
+            {
+                _validationCancellation.Cancel();
+            }
             StatusText.Text = "正在清理临时登录数据……";
             var cleaned = await CleanupAsync();
             if (!cleaned)
             {
                 MessageBox.Show(
-                    "WebView2 已关闭，但临时目录未能完全删除：\n" + _userDataFolder + "\n请关闭相关 WebView2 进程后手动删除。",
+                    "WebView2 已关闭，但本次临时目录未能在限定时间内删除。下次启动会再次安全清理。",
                     "临时数据清理未完成",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -268,12 +307,23 @@ namespace QingPriceLogin
                 if (Browser.CoreWebView2 != null)
                 {
                     Browser.CoreWebView2.CookieManager.DeleteAllCookies();
-                    await Browser.CoreWebView2.Profile.ClearBrowsingDataAsync();
+                    var clearTask = Browser.CoreWebView2.Profile.ClearBrowsingDataAsync();
+                    var completed = await Task.WhenAny(
+                        clearTask,
+                        Task.Delay(LoginPolicy.BrowsingDataCleanupTimeout));
+                    if (completed == clearTask)
+                    {
+                        await clearTask;
+                    }
+                    else
+                    {
+                        ObserveFault(clearTask);
+                    }
                 }
             }
             catch (Exception)
             {
-                // 即使 WebView2 清理 API 失败，也继续释放控件并删除隔离目录。
+                // 清理 API 失败或旧 Runtime 不支持时，继续释放控件和删除隔离目录。
             }
 
             try
@@ -285,31 +335,27 @@ namespace QingPriceLogin
                 // 释放失败仍继续尝试目录清理。
             }
 
-            if (!LoginPolicy.IsSafeUserDataFolder(_userDataFolder))
+            try
+            {
+                return await LoginPolicy.DeleteUserDataDirectoryWithRetryAsync(
+                    _userDataFolder,
+                    16,
+                    TimeSpan.FromMilliseconds(250),
+                    CancellationToken.None);
+            }
+            catch (Exception)
             {
                 return false;
             }
+        }
 
-            for (var attempt = 0; attempt < 8; attempt++)
-            {
-                try
-                {
-                    if (Directory.Exists(_userDataFolder))
-                    {
-                        Directory.Delete(_userDataFolder, true);
-                    }
-                    return true;
-                }
-                catch (IOException)
-                {
-                    await Task.Delay(250);
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    await Task.Delay(250);
-                }
-            }
-            return !Directory.Exists(_userDataFolder);
+        private static void ObserveFault(Task task)
+        {
+            task.ContinueWith(
+                completed => { var ignored = completed.Exception; },
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
         }
     }
 }

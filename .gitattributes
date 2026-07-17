@@ -4,3 +4,5 @@
 *.png binary
 *.ico binary
 *.zip binary
+third_party/Microsoft.Web.WebView2/1.0.4078.44/LICENSE.txt -text
+third_party/Microsoft.Web.WebView2/1.0.4078.44/NOTICE.txt -text

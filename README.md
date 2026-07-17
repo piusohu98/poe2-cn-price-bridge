@@ -134,6 +134,12 @@ dist\QingPricePOE2-v*-windows-x64.zip
 dist\QingPricePOE2-v*-windows-x64.sha256.txt
 ```
 
+## 第三方组件
+
+独立登录 PoC `QingPriceLogin.exe` 使用固定版本 `Microsoft.Web.WebView2 1.0.4078.44`。NuGet 依赖由 `login/QingPriceLogin/packages.lock.json` 锁定，构建时通过 `tools/build_login.ps1` 从 `Cargo.toml` 注入统一版本号。
+
+发布包在 `licenses` 目录中包含对应版本的 Microsoft WebView2 `LICENSE.txt` 和 `NOTICE.txt`。程序不捆绑 WebView2 Runtime；缺失时只引导到微软官方下载页面。
+
 ## GitHub 发布
 
 仓库包含 `.github/workflows/release.yml`。推送 tag 后会自动构建 Windows x64 zip 并挂到 GitHub Release：

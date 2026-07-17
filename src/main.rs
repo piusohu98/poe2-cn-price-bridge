@@ -1220,18 +1220,29 @@ fn set_cookie_from_file(path: &str) -> Result<()> {
 }
 
 const MAX_STDIN_POESESSID_BYTES: usize = 4096;
+const STDIN_POESESSID_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// 解析登录助手经标准输入传入的裸 POESESSID，拒绝请求头和控制字符注入。
-fn parse_poesessid_stdin(raw: &str) -> Result<String> {
-    let value = raw.trim();
+/// 解析并复用登录助手传入的裸 POESESSID 缓冲区，拒绝请求头和控制字符注入。
+fn parse_poesessid_stdin(mut value: String) -> Result<String> {
+    let leading = value.len() - value.trim_start().len();
+    if leading != 0 {
+        value.drain(..leading);
+    }
+    value.truncate(value.trim_end().len());
     if value.is_empty() {
         bail!("标准输入中的 POESESSID 为空");
     }
     if value.len() > MAX_STDIN_POESESSID_BYTES {
         bail!("标准输入中的 POESESSID 过长");
     }
-    let lower = value.to_ascii_lowercase();
-    if lower.starts_with("cookie:") || lower.contains("poesessid=") {
+    if value
+        .get(.."cookie:".len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
+        || value
+            .as_bytes()
+            .windows("poesessid=".len())
+            .any(|window| window.eq_ignore_ascii_case(b"poesessid="))
+    {
         bail!("标准输入只接受裸 POESESSID 值");
     }
     if !value.is_ascii()
@@ -1241,25 +1252,51 @@ fn parse_poesessid_stdin(raw: &str) -> Result<String> {
     {
         bail!("标准输入中的 POESESSID 包含不允许的字符");
     }
-    Ok(value.to_string())
+    Ok(value)
 }
 
-/// 从标准输入接收登录助手提供的 Secret，验证通过后才覆盖 DPAPI 存储。
-fn set_cookie_from_stdin() -> Result<()> {
-    let mut raw = String::new();
-    io::stdin()
+/// 从任意读取器最多读取 4097 字节；超长或管道错误不会回显已读内容。
+fn read_poesessid_from_reader(reader: &mut impl Read) -> Result<String> {
+    let mut value = String::new();
+    reader
         .take((MAX_STDIN_POESESSID_BYTES + 1) as u64)
-        .read_to_string(&mut raw)
+        .read_to_string(&mut value)
         .context("读取标准输入失败")?;
-    let value = parse_poesessid_stdin(&raw)?;
-    let cookie = format!("POESESSID={value}");
+    parse_poesessid_stdin(value)
+}
+
+/// 在专用线程执行可能阻塞的读取，主线程超过期限后立即安全失败。
+fn receive_poesessid_with_timeout<F>(read: F, timeout: Duration) -> Result<String>
+where
+    F: FnOnce() -> Result<String> + Send + 'static,
+{
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let _ = result_tx.send(read());
+    });
+    match result_rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => bail!("读取标准输入超时"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => bail!("标准输入读取线程意外中断"),
+    }
+}
+
+/// 从标准输入接收候选值，验证通过后才覆盖 DPAPI 存储。
+fn set_cookie_from_stdin() -> Result<()> {
+    let mut cookie = receive_poesessid_with_timeout(
+        || {
+            let mut stdin = io::stdin();
+            read_poesessid_from_reader(&mut stdin)
+        },
+        STDIN_POESESSID_TIMEOUT,
+    )?;
+    cookie.insert_str(0, "POESESSID=");
     validate_cookie_against_cn(&cookie)
         .map_err(|error| anyhow!(redact_sensitive_text(&error.to_string(), Some(&cookie))))?;
     save_cookie(&cookie)?;
     update_cookie_validation_status("ok");
     Ok(())
 }
-
 fn cookie_validation_payload() -> Value {
     json!({
         "query": {
@@ -1964,6 +2001,15 @@ fn request_json(
     serde_json::from_str(&body).map_err(|_| TradeError::Request("接口返回不是 JSON".to_string()))
 }
 
+/// 将候选 Cookie 验证错误稳定分类为认证失败或网络/服务请求失败。
+fn classify_candidate_failure(status: Option<u16>, detail: &str) -> TradeError {
+    match status {
+        Some(401 | 403) => TradeError::Auth(format!("POESESSID 无效/过期。{}", support_hint())),
+        Some(code) => TradeError::Request(format!("HTTP {code}: {detail}")),
+        None => TradeError::Request(format!("网络请求失败: {detail}")),
+    }
+}
+
 /// 使用显式 Cookie 请求受限的国服 trade2 端点，候选 Secret 不需要提前落盘。
 fn request_json_with_cookie(
     client: &Client,
@@ -1992,7 +2038,7 @@ fn request_json_with_cookie(
 
     let resp = req
         .send()
-        .map_err(|err| TradeError::Request(format!("网络请求失败: {err}")))?;
+        .map_err(|err| classify_candidate_failure(None, &err.to_string()))?;
     let status = resp.status();
     let body = resp
         .text()
@@ -2011,21 +2057,11 @@ fn request_json_with_cookie(
                 message = text.to_string();
             }
         }
-        if status.as_u16() == 401 || status.as_u16() == 403 {
-            return Err(TradeError::Auth(format!(
-                "POESESSID 无效/过期。{}",
-                support_hint()
-            )));
-        }
-        return Err(TradeError::Request(format!(
-            "HTTP {}: {message}",
-            status.as_u16()
-        )));
+        return Err(classify_candidate_failure(Some(status.as_u16()), &message));
     }
 
     serde_json::from_str(&body).map_err(|_| TradeError::Request("接口返回不是 JSON".to_string()))
 }
-
 fn scalar_text(value: &Value) -> String {
     if let Some(text) = value.as_str() {
         text.to_string()
@@ -4512,7 +4548,7 @@ mod tests {
     fn parses_only_bare_poesessid_from_stdin() {
         let secret = ["SYNTHETIC_", "LOGIN_", "7f3a91d2"].concat();
         assert_eq!(
-            parse_poesessid_stdin(&format!("{secret}\r\n")).unwrap(),
+            parse_poesessid_stdin(format!("{secret}\r\n")).unwrap(),
             secret
         );
 
@@ -4524,14 +4560,65 @@ mod tests {
             "value\r\ninjected",
             "value,other",
         ] {
-            let error = parse_poesessid_stdin(invalid).unwrap_err().to_string();
+            let error = parse_poesessid_stdin(invalid.to_string())
+                .unwrap_err()
+                .to_string();
             if !invalid.is_empty() {
                 assert!(!error.contains(invalid), "错误信息不得回显 Secret");
             }
         }
-        assert!(parse_poesessid_stdin(&"x".repeat(MAX_STDIN_POESESSID_BYTES + 1)).is_err());
+        assert!(parse_poesessid_stdin("x".repeat(MAX_STDIN_POESESSID_BYTES + 1)).is_err());
     }
 
+    #[test]
+    fn stdin_reader_rejects_oversize_broken_pipe_and_unclosed_input() {
+        let mut oversized = std::io::Cursor::new(vec![b'x'; MAX_STDIN_POESESSID_BYTES + 1]);
+        assert!(read_poesessid_from_reader(&mut oversized).is_err());
+
+        struct BrokenPipeReader;
+        impl Read for BrokenPipeReader {
+            fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "synthetic pipe interruption",
+                ))
+            }
+        }
+        let error = read_poesessid_from_reader(&mut BrokenPipeReader)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("读取标准输入失败"));
+        assert!(!error.contains("POESESSID="));
+
+        let (hold_tx, hold_rx) = mpsc::channel::<()>();
+        let error = receive_poesessid_with_timeout(
+            move || {
+                let _ = hold_rx.recv();
+                Ok("late-value".to_string())
+            },
+            Duration::from_millis(30),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, "读取标准输入超时");
+        drop(hold_tx);
+    }
+
+    #[test]
+    fn candidate_failures_distinguish_network_and_authentication() {
+        assert!(matches!(
+            classify_candidate_failure(None, "offline"),
+            TradeError::Request(message) if message.contains("网络请求失败")
+        ));
+        assert!(matches!(
+            classify_candidate_failure(Some(401), "ignored"),
+            TradeError::Auth(message) if message.contains("POESESSID 无效/过期")
+        ));
+        assert!(matches!(
+            classify_candidate_failure(Some(503), "unavailable"),
+            TradeError::Request(message) if message.contains("HTTP 503")
+        ));
+    }
     #[test]
     fn manual_hotkey_is_normalized_and_can_be_disabled() {
         assert_eq!(normalize_manual_hotkey("f9"), "F9");

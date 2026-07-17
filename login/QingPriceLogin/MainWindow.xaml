@@ -9,7 +9,7 @@
             <StackPanel>
                 <TextBlock FontSize="16" FontWeight="SemiBold" Text="登录腾讯国服交易站" />
                 <TextBlock Margin="0,5,0,0" TextWrapping="Wrap"
-                           Text="请在下方完成 QQ 登录或扫码。助手只读取适用于 poe.game.qq.com 的 POESESSID，不读取账号、密码、QQ 号或二维码内容。" />
+                           Text="请在下方完成微信扫码登录。助手只读取适用于 poe.game.qq.com 的 POESESSID，不读取账号、密码、微信号或二维码内容。" />
                 <TextBlock x:Name="StatusText" Margin="0,6,0,0" Foreground="#FF315C8C" Text="正在检查 WebView2 Runtime……" />
             </StackPanel>
         </Border>
