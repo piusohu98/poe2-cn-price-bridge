@@ -5,6 +5,8 @@
 
 $ErrorActionPreference = 'Stop'
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
+$loginProject = Join-Path $rootPath 'login\QingPriceLogin\QingPriceLogin.csproj'
+$loginOutput = Join-Path $rootPath 'login\QingPriceLogin\bin\Release\net48'
 
 & (Join-Path $PSScriptRoot 'make_icon.ps1') -Root $rootPath
 
@@ -22,6 +24,14 @@ if (-not $SkipBuild) {
         }
     } finally {
         Pop-Location
+    }
+}
+
+
+if (-not $SkipBuild) {
+    dotnet build $loginProject -c Release
+    if ($LASTEXITCODE -ne 0) {
+        throw "QingPriceLogin build failed with exit code $LASTEXITCODE"
     }
 }
 
@@ -44,6 +54,16 @@ New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'assets') | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe') -Destination (Join-Path $packageDir 'QingPricePOE2.exe') -Force
+$loginFiles = @(
+    'QingPriceLogin.exe',
+    'QingPriceLogin.exe.config',
+    'Microsoft.Web.WebView2.Core.dll',
+    'Microsoft.Web.WebView2.Wpf.dll',
+    'WebView2Loader.dll'
+)
+foreach ($loginFile in $loginFiles) {
+    Copy-Item -LiteralPath (Join-Path $loginOutput $loginFile) -Destination (Join-Path $packageDir $loginFile) -Force
+}
 Copy-Item -LiteralPath (Join-Path $rootPath 'first_run_wizard.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootPath 'control_center.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootPath 'history_gui.ps1') -Destination $packageDir -Force
@@ -68,6 +88,7 @@ start_here_zh: 开始使用.bat
 control_center: ControlCenter.bat
 start: Start.bat / 启动查价.bat / QingPricePOE2.exe
 first_run: FirstRun.bat
+login_poc: QingPriceLogin.exe
 first_run_zh: 首次向导.bat
 settings: Settings.bat
 settings_zh: 常用设置.bat

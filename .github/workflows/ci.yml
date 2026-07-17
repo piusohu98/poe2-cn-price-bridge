@@ -8,7 +8,7 @@ on:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,3 +29,12 @@ jobs:
 
       - name: Build
         run: cargo build --release
+
+      - name: Build login PoC
+        run: dotnet build login/QingPriceLogin/QingPriceLogin.csproj -c Release
+
+      - name: Test login PoC policy
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath ./login/QingPriceLogin/bin/Release/net48/QingPriceLogin.exe -ArgumentList --self-test -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }

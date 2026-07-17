@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::mem::MaybeUninit;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
@@ -1219,6 +1219,47 @@ fn set_cookie_from_file(path: &str) -> Result<()> {
     save_cookie(&raw)
 }
 
+const MAX_STDIN_POESESSID_BYTES: usize = 4096;
+
+/// 解析登录助手经标准输入传入的裸 POESESSID，拒绝请求头和控制字符注入。
+fn parse_poesessid_stdin(raw: &str) -> Result<String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        bail!("标准输入中的 POESESSID 为空");
+    }
+    if value.len() > MAX_STDIN_POESESSID_BYTES {
+        bail!("标准输入中的 POESESSID 过长");
+    }
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("cookie:") || lower.contains("poesessid=") {
+        bail!("标准输入只接受裸 POESESSID 值");
+    }
+    if !value.is_ascii()
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b';' | b',' | b'"' | b'\\'))
+    {
+        bail!("标准输入中的 POESESSID 包含不允许的字符");
+    }
+    Ok(value.to_string())
+}
+
+/// 从标准输入接收登录助手提供的 Secret，验证通过后才覆盖 DPAPI 存储。
+fn set_cookie_from_stdin() -> Result<()> {
+    let mut raw = String::new();
+    io::stdin()
+        .take((MAX_STDIN_POESESSID_BYTES + 1) as u64)
+        .read_to_string(&mut raw)
+        .context("读取标准输入失败")?;
+    let value = parse_poesessid_stdin(&raw)?;
+    let cookie = format!("POESESSID={value}");
+    validate_cookie_against_cn(&cookie)
+        .map_err(|error| anyhow!(redact_sensitive_text(&error.to_string(), Some(&cookie))))?;
+    save_cookie(&cookie)?;
+    update_cookie_validation_status("ok");
+    Ok(())
+}
+
 fn cookie_validation_payload() -> Value {
     json!({
         "query": {
@@ -1228,6 +1269,49 @@ fn cookie_validation_payload() -> Value {
         },
         "sort": { "price": "asc" }
     })
+}
+
+/// 仅使用候选 Cookie 访问国服 trade2；验证失败时不会修改现有认证存储。
+fn validate_cookie_against_cn(cookie: &str) -> Result<(), TradeError> {
+    let settings = load_config().settings.normalized();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| TradeError::Request(format!("创建 HTTP 客户端失败: {err}")))?;
+    let payload = cookie_validation_payload();
+    let mut failures = Vec::new();
+
+    for league in settings.leagues() {
+        match request_json_with_cookie(
+            &client,
+            &trade_search_url(&league),
+            Method::POST,
+            Some(&payload),
+            cookie,
+        ) {
+            Ok(data) => {
+                if data.get("error").unwrap_or(&Value::Null).is_null() {
+                    return Ok(());
+                }
+                let message = data
+                    .get("error")
+                    .and_then(|err| err.get("message"))
+                    .and_then(Value::as_str)
+                    .or_else(|| data.get("error").and_then(Value::as_str))
+                    .unwrap_or("trade validation error");
+                failures.push(format!("{league}: {message}"));
+            }
+            Err(TradeError::Auth(message)) => return Err(TradeError::Auth(message)),
+            Err(TradeError::Request(message)) => failures.push(format!("{league}: {message}")),
+        }
+    }
+
+    let message = if failures.is_empty() {
+        "验证请求没有返回可用结果".to_string()
+    } else {
+        failures.join(" / ")
+    };
+    Err(TradeError::Request(message))
 }
 
 fn validate_saved_cookie() -> Result<()> {
@@ -1831,6 +1915,68 @@ fn request_json(
     let cookie = load_cookie()
         .map_err(|err| TradeError::Auth(format!("读取 POESESSID 失败: {err}")))?
         .ok_or_else(|| TradeError::Auth(format!("没有保存 POESESSID。{}", support_hint())))?;
+
+    let mut req = client
+        .request(method, url)
+        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .header("Cookie", cookie)
+        .header("Referer", TRADE_HOME)
+        .header("Origin", "https://poe.game.qq.com");
+
+    if let Some(payload) = payload {
+        req = req.json(payload);
+    }
+
+    let resp = req
+        .send()
+        .map_err(|err| TradeError::Request(format!("网络请求失败: {err}")))?;
+    let status = resp.status();
+    let body = resp
+        .text()
+        .map_err(|err| TradeError::Request(format!("读取接口返回失败: {err}")))?;
+
+    if !status.is_success() {
+        let mut message = body.clone();
+        if let Ok(data) = serde_json::from_str::<Value>(&body) {
+            if let Some(text) = data
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(Value::as_str)
+            {
+                message = text.to_string();
+            } else if let Some(text) = data.get("error").and_then(Value::as_str) {
+                message = text.to_string();
+            }
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(TradeError::Auth(format!(
+                "POESESSID 无效/过期。{}",
+                support_hint()
+            )));
+        }
+        return Err(TradeError::Request(format!(
+            "HTTP {}: {message}",
+            status.as_u16()
+        )));
+    }
+
+    serde_json::from_str(&body).map_err(|_| TradeError::Request("接口返回不是 JSON".to_string()))
+}
+
+/// 使用显式 Cookie 请求受限的国服 trade2 端点，候选 Secret 不需要提前落盘。
+fn request_json_with_cookie(
+    client: &Client,
+    url: &str,
+    method: Method,
+    payload: Option<&Value>,
+    cookie: &str,
+) -> Result<Value, TradeError> {
+    if !is_allowed_trade_endpoint(url) {
+        return Err(TradeError::Request(
+            "已阻止非国服 trade2 请求地址".to_string(),
+        ));
+    }
 
     let mut req = client
         .request(method, url)
@@ -4250,6 +4396,7 @@ fn print_usage() {
     println!("{APP_DISPLAY_NAME} {APP_VERSION}");
     println!("  --set-cookie     保存 POESESSID/Cookie");
     println!("  --set-cookie-file PATH");
+    println!("  --set-cookie-stdin 从标准输入验证并保存裸 POESESSID");
     println!("  --clear-cookie   清除已保存 Cookie");
     println!("  --validate-cookie 验证已保存 Cookie");
     println!("  --diagnostics [PATH] 导出诊断文件");
@@ -4271,6 +4418,9 @@ fn main() -> Result<()> {
     }
     if args.iter().any(|arg| arg == "--set-cookie") {
         return set_cookie_interactive();
+    }
+    if args.iter().any(|arg| arg == "--set-cookie-stdin") {
+        return set_cookie_from_stdin();
     }
     if let Some(index) = args.iter().position(|arg| arg == "--set-cookie-file") {
         let Some(path) = args.get(index + 1) else {
@@ -4356,6 +4506,30 @@ mod tests {
             "POESESSID=abc123 foo=bar"
         );
         assert_eq!(normalize_cookie_input("   "), "");
+    }
+
+    #[test]
+    fn parses_only_bare_poesessid_from_stdin() {
+        let secret = ["SYNTHETIC_", "LOGIN_", "7f3a91d2"].concat();
+        assert_eq!(
+            parse_poesessid_stdin(&format!("{secret}\r\n")).unwrap(),
+            secret
+        );
+
+        for invalid in [
+            "",
+            "Cookie: POESESSID=value",
+            "POESESSID=value",
+            "value; other=1",
+            "value\r\ninjected",
+            "value,other",
+        ] {
+            let error = parse_poesessid_stdin(invalid).unwrap_err().to_string();
+            if !invalid.is_empty() {
+                assert!(!error.contains(invalid), "错误信息不得回显 Secret");
+            }
+        }
+        assert!(parse_poesessid_stdin(&"x".repeat(MAX_STDIN_POESESSID_BYTES + 1)).is_err());
     }
 
     #[test]

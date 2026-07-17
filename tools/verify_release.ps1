@@ -28,6 +28,42 @@ function Invoke-BridgeCommand {
     return $process.ExitCode
 }
 
+# 通过标准输入调用 Rust 桥接入口，捕获但不打印子进程输出。
+function Invoke-BridgeStdinCommand {
+    param(
+        [string] $FilePath,
+        [string] $InputValue
+    )
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = '--set-cookie-stdin'
+    $startInfo.WorkingDirectory = Split-Path -Parent $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw 'failed to start stdin bridge process'
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.StandardInput.Write($InputValue)
+        $process.StandardInput.Close()
+        $process.WaitForExit()
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Stdout = $stdoutTask.Result
+            Stderr = $stderrTask.Result
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 $cargoToml = Get-Content -LiteralPath (Join-Path $rootPath 'Cargo.toml') -Raw
 if ($cargoToml -notmatch 'version\s*=\s*"([^"]+)"') {
     throw 'Cannot read version from Cargo.toml'
@@ -40,6 +76,7 @@ $packageDir = Join-Path $distRoot $packageName
 $zipPath = Join-Path $distRoot "$packageName.zip"
 $checksumPath = Join-Path $distRoot "$packageName.sha256.txt"
 $exePath = Join-Path $packageDir 'QingPricePOE2.exe'
+$loginExePath = Join-Path $packageDir 'QingPriceLogin.exe'
 
 Assert-Ok (Test-Path -LiteralPath $packageDir) "package directory exists"
 Assert-Ok (Test-Path -LiteralPath $zipPath) "zip exists"
@@ -48,6 +85,11 @@ Assert-Ok (Test-Path -LiteralPath $exePath) "exe exists"
 
 $requiredFiles = @(
     'QingPricePOE2.exe',
+    'QingPriceLogin.exe',
+    'QingPriceLogin.exe.config',
+    'Microsoft.Web.WebView2.Core.dll',
+    'Microsoft.Web.WebView2.Wpf.dll',
+    'WebView2Loader.dll',
     'StartHere.bat',
     '开始使用.bat',
     'ControlCenter.bat',
@@ -113,10 +155,14 @@ $expectedHash = (Get-Content -LiteralPath $checksumPath -Raw).Trim().Split()[0]
 $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
 Assert-Ok ($actualHash -eq $expectedHash) "sha256 matches zip"
 
+$loginSelfTestExit = Invoke-BridgeCommand -FilePath $loginExePath -Arguments @('--self-test')
+Assert-Ok ($loginSelfTestExit -eq 0) "login helper offline self-test passes"
+
 $versionText = Get-Content -LiteralPath (Join-Path $packageDir 'VERSION.txt') -Raw
 Assert-Ok ($versionText -match "version:\s*$([regex]::Escape($version))") "VERSION.txt has package version"
 Assert-Ok ($versionText -match 'start_here:\s*StartHere\.bat') "VERSION.txt lists start here"
 Assert-Ok ($versionText -match 'start_here_zh:\s*开始使用\.bat') "VERSION.txt lists Chinese start here"
+Assert-Ok ($versionText -match 'login_poc:\s*QingPriceLogin\.exe') "VERSION.txt lists login PoC"
 Assert-Ok ($versionText -match 'control_center:\s*ControlCenter\.bat') "VERSION.txt lists control center"
 Assert-Ok ($versionText -match 'cookie_zh:\s*设置Cookie\.bat') "VERSION.txt lists Chinese cookie setup"
 Assert-Ok ($versionText -match 'history_zh:\s*查询历史\.bat') "VERSION.txt lists Chinese history"
@@ -254,6 +300,13 @@ try {
     Assert-Ok ($selfCheck -match 'SUPPORT\.md:\s*ok') "self-check verifies support guide"
 
     $syntheticSecret = ('SYNTHETIC_' + 'POESESSID_' + '7f3a91d2')
+    $stdinResult = Invoke-BridgeStdinCommand -FilePath $exePath -InputValue $syntheticSecret
+    Assert-Ok ($stdinResult.ExitCode -ne 0) "invalid synthetic stdin Cookie is rejected"
+    Assert-Ok (-not $stdinResult.Stdout.Contains($syntheticSecret)) "stdin bridge stdout does not expose synthetic secret"
+    Assert-Ok (-not $stdinResult.Stderr.Contains($syntheticSecret)) "stdin bridge stderr does not expose synthetic secret"
+    $isolatedConfig = Join-Path $env:APPDATA 'poe2_cn_price_bridge\config.json'
+    Assert-Ok (-not (Test-Path -LiteralPath $isolatedConfig)) "failed stdin validation does not save Cookie"
+
     $secretInput = Join-Path $tempRoot 'synthetic-cookie.txt'
     try {
         [System.IO.File]::WriteAllText($secretInput, $syntheticSecret, [System.Text.UTF8Encoding]::new($false))

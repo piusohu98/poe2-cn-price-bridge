@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- 新增独立的 `QingPriceLogin.exe` 登录 PoC，使用 .NET Framework 4.8 WPF 和 `Microsoft.Web.WebView2` 1.0.4078.44。
+- 新增 Rust `--set-cookie-stdin` 桥接入口，仅接受裸 POESESSID，并在国服 trade2 验证通过后使用 DPAPI 保存。
+- 登录助手增加腾讯国服交易站、QQ 登录和微信扫码登录所需的精确 HTTPS 导航白名单。
+- CI 和发布验证增加登录助手构建、离线策略自检、stdin 合成 Secret 泄露测试及验证失败不保存测试。
+
+### Changed
+
+- Windows CI 固定到 `windows-2022`，发布包增加登录助手所需的最小 WebView2 托管程序集和 x64 Loader。
+- 自动登录检测仅在返回国服交易站且 Cookie 发生变化后执行；自动失败不再弹窗打断扫码。
+
+### Security
+
+- WebView2 使用独立的 `%TEMP%\QingPriceLogin\<GUID>` 用户数据目录，退出前清除 Cookie 和浏览数据，并校验删除边界后清理目录。
+- 登录助手不读取浏览器用户数据、不注入脚本、不读取账号、密码、QQ 号或二维码内容；Cookie 不进入命令行、日志、剪贴板或临时文件。
+- 候选 Cookie 验证失败不会覆盖现有 DPAPI 存储；错误返回会按运行时已知 Secret 再次脱敏。
+
+### Validation
+
+- 2026-07-17 人工验证：国服交易站可在 WebView2 打开，微信扫码登录成功，POESESSID 可提取并通过国服 `poe.game.qq.com/api/trade2` 验证，助手退出后临时目录无残留。
+- 当前仍为独立 PoC，尚未接入现有首次使用向导；手动粘贴 Cookie 方式保持不变。
+
 ## 0.2.0
 
 ### Added
