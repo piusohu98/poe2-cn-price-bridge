@@ -28,14 +28,14 @@ namespace QingPriceLogin
                 _ownsSingleInstanceMutex = createdNew;
                 if (!createdNew)
                 {
-                    MessageBox.Show("清价登录助手已在运行。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("流放2查价登录助手已在运行。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
                     Shutdown(3);
                     return;
                 }
             }
             catch (Exception)
             {
-                MessageBox.Show("无法建立登录助手单实例互斥，已安全停止。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("无法建立登录助手单实例互斥，已安全停止。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
                 Shutdown(4);
                 return;
             }
@@ -63,7 +63,7 @@ namespace QingPriceLogin
             }
             catch (Exception)
             {
-                MessageBox.Show("启动前清理历史 WebView2 临时目录失败，已安全停止。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("启动前清理历史 WebView2 临时目录失败，已安全停止。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
                 Shutdown(8);
                 return;
             }

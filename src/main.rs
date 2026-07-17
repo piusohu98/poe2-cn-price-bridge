@@ -65,9 +65,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
-const APP_DISPLAY_NAME: &str = "清价 POE2 国服查价";
+const APP_DISPLAY_NAME: &str = "流放2查价助手";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const USER_AGENT: &str = concat!("QingPricePOE2/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("POE2PriceHelper/", env!("CARGO_PKG_VERSION"));
 const TRADE_HOME: &str = "https://poe.game.qq.com/trade2";
 const TRADE_API_ROOT: &str = "https://poe.game.qq.com/api/trade2";
 const REDACTED_SECRET: &str = "[REDACTED]";
@@ -918,7 +918,7 @@ fn write_self_check(target: Option<PathBuf>) -> Result<PathBuf> {
     let root = project_root_dir();
     let cookie_saved = config.cookie_dpapi.is_some();
     let package_files = [
-        "QingPricePOE2.exe",
+        "POE2PriceHelper.exe",
         "StartHere.bat",
         "开始使用.bat",
         "ControlCenter.bat",
@@ -2493,7 +2493,7 @@ impl UiState {
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WM_TRAYICON;
         data.hIcon = self.app_icon;
-        copy_wide_fixed(&mut data.szTip, "清价 POE2 - Ctrl+C 自动查价");
+        copy_wide_fixed(&mut data.szTip, "流放2查价助手 - Ctrl+C 自动查价");
         if Shell_NotifyIconW(NIM_ADD, &data) != 0 {
             self.tray_added = true;
             let mut version_data = notify_icon_data(self.hwnd);
@@ -3241,7 +3241,7 @@ impl UiState {
         let settings = load_config().settings.normalized();
         self.view = OverlayView {
             title: format!("{APP_DISPLAY_NAME} v{APP_VERSION}"),
-            subtitle: "QingPrice POE2".to_string(),
+            subtitle: "流放2查价助手".to_string(),
             status: "托盘右键可运行自检、导出诊断或退出。".to_string(),
             current_url: TRADE_HOME.to_string(),
             accent: rgb(56, 189, 248),

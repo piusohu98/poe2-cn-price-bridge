@@ -1,4 +1,4 @@
-# 清价 POE2 国服查价
+# 流放2查价助手 国服查价
 
 一个 Rust 编写的 POE2 国服游戏内查价工具。悬停物品后按 `Ctrl+C`，工具会自动读取游戏复制的物品文本，请求国服官方 `poe.game.qq.com/api/trade2`，并在游戏上方显示价格面板。
 
@@ -19,10 +19,10 @@
 
 ## 下载后怎么用
 
-1. 解压发布包 `QingPricePOE2-v*-windows-x64.zip`。
+1. 解压发布包 `POE2PriceHelper-v*-windows-x64.zip`。
 2. 先运行 `开始使用.bat`，在控制中心里点 `首次使用向导`。
 3. 按向导完成登录、保存 Cookie、验证 Cookie 和启动工具。
-4. 以后可以继续用 `开始使用.bat`，也可以直接运行 `启动查价.bat` 或双击 `QingPricePOE2.exe`。
+4. 以后可以继续用 `开始使用.bat`，也可以直接运行 `启动查价.bat` 或双击 `POE2PriceHelper.exe`。
 5. 进游戏，鼠标悬停物品，按 `Ctrl+C`。
 6. 查看右上角价格面板；关闭面板后工具仍在托盘后台运行。
 
@@ -130,13 +130,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_release.ps1
 输出文件在：
 
 ```text
-dist\QingPricePOE2-v*-windows-x64.zip
-dist\QingPricePOE2-v*-windows-x64.sha256.txt
+dist\POE2PriceHelper-v*-windows-x64.zip
+dist\POE2PriceHelper-v*-windows-x64.sha256.txt
 ```
 
 ## 第三方组件
 
-独立登录 PoC `QingPriceLogin.exe` 使用固定版本 `Microsoft.Web.WebView2 1.0.4078.44`。NuGet 依赖由 `login/QingPriceLogin/packages.lock.json` 锁定，构建时通过 `tools/build_login.ps1` 从 `Cargo.toml` 注入统一版本号。
+独立登录 PoC `POE2PriceLogin.exe` 使用固定版本 `Microsoft.Web.WebView2 1.0.4078.44`。NuGet 依赖由 `login/QingPriceLogin/packages.lock.json` 锁定，构建时通过 `tools/build_login.ps1` 从 `Cargo.toml` 注入统一版本号。
 
 发布包在 `licenses` 目录中包含对应版本的 Microsoft WebView2 `LICENSE.txt` 和 `NOTICE.txt`。程序不捆绑 WebView2 Runtime；缺失时只引导到微软官方下载页面。
 

@@ -41,7 +41,7 @@ jobs:
       - name: Test login PoC policy
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath ./login/QingPriceLogin/bin/Release/net48/QingPriceLogin.exe -ArgumentList --self-test -Wait -PassThru
+          $process = Start-Process -FilePath ./login/QingPriceLogin/bin/Release/net48/POE2PriceLogin.exe -ArgumentList --self-test -Wait -PassThru
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
 
       - name: Package release for integration checks

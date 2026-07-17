@@ -6,7 +6,7 @@
 
 ## Sensitive Data
 
-清价 POE2 会保存国服 `POESESSID`，用于访问官方 trade2 接口。Cookie 使用 Windows DPAPI 加密，仅当前 Windows 用户可解密。
+流放2查价助手 会保存国服 `POESESSID`，用于访问官方 trade2 接口。Cookie 使用 Windows DPAPI 加密，仅当前 Windows 用户可解密。
 
 以下文件不应包含明文 Cookie：
 

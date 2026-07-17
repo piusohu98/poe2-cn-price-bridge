@@ -10,13 +10,13 @@ Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
-    (Join-Path $rootPath 'QingPricePOE2.exe'),
+    (Join-Path $rootPath 'POE2PriceHelper.exe'),
     (Join-Path $rootPath 'poe2_cn_price_bridge.exe'),
     (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe')
 )
 $exe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-$bridgeExe = Join-Path $rootPath 'QingPricePOE2.exe'
-$loginHelper = Join-Path $rootPath 'QingPriceLogin.exe'
+$bridgeExe = Join-Path $rootPath 'POE2PriceHelper.exe'
+$loginHelper = Join-Path $rootPath 'POE2PriceLogin.exe'
 $settingsScript = Join-Path $rootPath 'settings_gui.ps1'
 $loginTimeoutSeconds = 180
 
@@ -36,7 +36,7 @@ function Test-CookieInput($text) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="清价 POE2 - 首次使用向导"
+        Title="流放2查价助手 - 首次使用向导"
         Width="880" Height="600"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -187,10 +187,10 @@ function Test-CookieInput($text) {
                     Background="#0B111A">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
-                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#5B3710" BorderBrush="#C78A2B" BorderThickness="1">
+                            <TextBlock Text="价" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#FFF4D6" FontSize="15" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="清价 POE2"
+                        <TextBlock Text="流放2查价助手"
                                    Margin="10,0,0,0"
                                    VerticalAlignment="Center"
                                    FontSize="13"
@@ -510,7 +510,7 @@ $closeActionButton.add_Click($closeHandler)
 $openHandler = {
     if (-not (Test-Path -LiteralPath $loginHelper)) {
         Set-StepState 1 'error'
-        Set-Status -Text '找不到 QingPriceLogin.exe，请确认发布包完整。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceLogin.exe，请确认发布包完整。' -Kind 'error'
         return
     }
     Set-StepState 1 'active'
@@ -530,7 +530,7 @@ $openHandler = {
         }
         'missing' {
             Set-StepState 1 'error'
-            Set-Status -Text '找不到 QingPriceLogin.exe，请重新解压完整发布包。' -Kind 'error'
+            Set-Status -Text '找不到 POE2PriceLogin.exe，请重新解压完整发布包。' -Kind 'error'
         }
         'bridge-missing' {
             Set-StepState 1 'error'

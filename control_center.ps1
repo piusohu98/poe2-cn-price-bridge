@@ -9,7 +9,7 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
-$exe = Join-Path $rootPath 'QingPricePOE2.exe'
+$exe = Join-Path $rootPath 'POE2PriceHelper.exe'
 $configPath = Join-Path (Join-Path $env:APPDATA 'poe2_cn_price_bridge') 'config.json'
 $tradeHome = 'https://poe.game.qq.com/trade2'
 
@@ -35,7 +35,7 @@ function Get-CookieState {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="清价 POE2 - 控制中心"
+        Title="流放2查价助手 - 控制中心"
         Width="820" Height="610"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -137,10 +137,10 @@ function Get-CookieState {
             <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="22,22,0,0" Background="#0B111A">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
-                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#5B3710" BorderBrush="#C78A2B" BorderThickness="1">
+                            <TextBlock Text="价" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#FFF4D6" FontSize="15" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="清价 POE2" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                        <TextBlock Text="流放2查价助手" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
                     </StackPanel>
                     <Button x:Name="CloseButton" Content="×" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Style="{StaticResource ChromeButton}"/>
                 </Grid>
@@ -249,7 +249,7 @@ function Start-VisibleScript($script) {
 
 function Run-ExeCommand($arg, $outputName) {
     if (-not (Test-Path -LiteralPath $exe)) {
-        Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe' -Kind 'error'
         return
     }
     $output = Join-Path $rootPath $outputName
@@ -309,7 +309,7 @@ New-ActionButton '启动工具' {
         Set-Status -Text '已启动，托盘图标会常驻后台。' -Kind 'ok'
         return
     }
-    Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+    Set-Status -Text '找不到 POE2PriceHelper.exe' -Kind 'error'
 } $true
 
 New-ActionButton '首次使用向导' {
@@ -355,7 +355,7 @@ New-ActionButton '检查更新' {
 
 New-ActionButton '验证 Cookie' {
     if (-not (Test-Path -LiteralPath $exe)) {
-        Set-Status -Text '找不到 QingPricePOE2.exe' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe' -Kind 'error'
         return
     }
     Set-Status -Text '正在验证 Cookie...'

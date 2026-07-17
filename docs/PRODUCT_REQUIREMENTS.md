@@ -1,16 +1,16 @@
-# 清价 POE2 生产级客户版需求梳理
+# 流放2查价助手 生产级客户版需求梳理
 
 ## 产品定位
 
-清价 POE2 是给 POE2 国服玩家使用的本地查价工具。目标是让普通客户下载、解压、登录 Cookie、进游戏 `Ctrl+C` 后即可看到可用价格，并且在出问题时能导出诊断文件交给维护者排查。
+流放2查价助手 是给 POE2 国服玩家使用的本地查价工具。目标是让普通客户下载、解压、登录 Cookie、进游戏 `Ctrl+C` 后即可看到可用价格，并且在出问题时能导出诊断文件交给维护者排查。
 
 ## 当前核心流程
 
-1. 客户下载 `QingPricePOE2-v*-windows-x64.zip`。
+1. 客户下载 `POE2PriceHelper-v*-windows-x64.zip`。
 2. 解压后运行 `开始使用.bat` 打开控制中心，再按向导完成登录、保存 Cookie、验证 Cookie 和启动。
 3. 如需单独重设 Cookie，运行 `设置Cookie.bat`，窗口可识别剪贴板里的 POESESSID，保存后自动验证。
 4. 如需调整赛季、抓取数量、自动查价，运行 `常用设置.bat`。
-5. 运行 `启动查价.bat` 或 `QingPricePOE2.exe`。
+5. 运行 `启动查价.bat` 或 `POE2PriceHelper.exe`。
 6. 工具常驻系统托盘，无黑色后台窗口。
 7. 游戏里悬停物品并按 `Ctrl+C`。
 8. 工具自动读取剪贴板、请求国服 trade2、显示价格面板。
@@ -93,4 +93,4 @@
 - `--diagnostics` 生成诊断文件，且不包含明文 Cookie。
 - `--check-update` 生成更新检查报告，网络失败时不泄露 Cookie 且说明不需要授权。
 - Cookie 失效、网络失败、筛选过严时，面板有明确错误类型和可点击处理按钮。
-- 发布包包含 `QingPricePOE2.exe`、`StartHere.bat`、`开始使用.bat`、`ControlCenter.bat`、`control_center.ps1`、`FirstRun.bat`、`首次向导.bat`、`Start.bat`、`启动查价.bat`、`SetCookie.bat`、`设置Cookie.bat`、`ValidateCookie.bat`、`Settings.bat`、`常用设置.bat`、`History.bat`、`查询历史.bat`、`SelfCheck.bat`、`运行自检.bat`、`CheckUpdate.bat`、`检查更新.bat`、`Diagnostics.bat`、`SupportBundle.bat`、`生成支持包.bat`、`SupportBundle.ps1`、`ResetData.bat`、`ResetData.ps1`、`Uninstall.bat`、`Uninstall.ps1`、`InstallShortcut.bat`、`ClearCookie.bat`、README、CHANGELOG、SUPPORT、VERSION、LICENSE、图标资源。
+- 发布包包含 `POE2PriceHelper.exe`、`StartHere.bat`、`开始使用.bat`、`ControlCenter.bat`、`control_center.ps1`、`FirstRun.bat`、`首次向导.bat`、`Start.bat`、`启动查价.bat`、`SetCookie.bat`、`设置Cookie.bat`、`ValidateCookie.bat`、`Settings.bat`、`常用设置.bat`、`History.bat`、`查询历史.bat`、`SelfCheck.bat`、`运行自检.bat`、`CheckUpdate.bat`、`检查更新.bat`、`Diagnostics.bat`、`SupportBundle.bat`、`生成支持包.bat`、`SupportBundle.ps1`、`ResetData.bat`、`ResetData.ps1`、`Uninstall.bat`、`Uninstall.ps1`、`InstallShortcut.bat`、`ClearCookie.bat`、README、CHANGELOG、SUPPORT、VERSION、LICENSE、图标资源。

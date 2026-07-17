@@ -25,10 +25,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_release.ps1 -RunLaunchSm
 
 ## 发布包验证
 
-- 解压 `dist\QingPricePOE2-v*-windows-x64.zip` 到一个新目录。
+- 解压 `dist\POE2PriceHelper-v*-windows-x64.zip` 到一个新目录。
 - 运行 `开始使用.bat`，确认控制中心能打开。
-- 双击 `QingPricePOE2.exe`，确认无黑色后台窗口。
-- 在资源管理器里确认 `QingPricePOE2.exe` 使用清价品牌图标。
+- 双击 `POE2PriceHelper.exe`，确认无黑色后台窗口。
+- 在资源管理器里确认 `POE2PriceHelper.exe` 使用流放2查价助手品牌图标。
 - 再双击一次，确认不会出现第二个进程。
 - 托盘右键菜单可打开面板、设置 Cookie、导出诊断、退出。
 - 托盘右键菜单可运行自检并打开 `selfcheck-*.txt`。
@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_release.ps1 -RunLaunchSm
 - 游戏中悬停物品按 `Ctrl+C`，确认能看到结果面板或明确错误。
 - 临时清空 Cookie 或使用无效 Cookie，确认错误页有分类、建议和 `设置Cookie` / `验证Cookie` 按钮。
 - 使用过严同属性筛选查询一次，确认空结果文案提示可关闭筛选后重试。
-- 确认 `dist\QingPricePOE2-v*-windows-x64.sha256.txt` 已生成。
+- 确认 `dist\POE2PriceHelper-v*-windows-x64.sha256.txt` 已生成。
 
 ## GitHub 发布
 

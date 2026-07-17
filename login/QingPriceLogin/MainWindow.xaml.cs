@@ -26,7 +26,7 @@ namespace QingPriceLogin
         internal MainWindow()
         {
             InitializeComponent();
-            _bridgePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "QingPricePOE2.exe");
+            _bridgePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "POE2PriceHelper.exe");
             _userDataFolder = LoginPolicy.CreateUserDataFolder();
             _cookieTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _cookieTimer.Tick += CookieTimer_Tick;
@@ -74,7 +74,7 @@ namespace QingPriceLogin
                 StatusText.Text = "WebView2 初始化或安全配置失败。";
                 MessageBox.Show(
                     "登录窗口安全初始化失败。请升级 Microsoft Edge WebView2 Runtime 后重试；未记录异常详情或任何 Cookie。",
-                    "清价登录助手",
+                    "流放2查价登录助手",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 Close();
@@ -206,8 +206,8 @@ namespace QingPriceLogin
 
                 if (!File.Exists(_bridgePath))
                 {
-                    StatusText.Text = "未找到 QingPricePOE2.exe，无法验证登录结果。";
-                    MessageBox.Show("请将登录助手与 QingPricePOE2.exe 放在同一目录。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusText.Text = "未找到 POE2PriceHelper.exe，无法验证登录结果。";
+                    MessageBox.Show("请将登录助手与 POE2PriceHelper.exe 放在同一目录。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
@@ -222,7 +222,7 @@ namespace QingPriceLogin
                 {
                     _exitCode = 0;
                     StatusText.Text = "登录验证成功，POESESSID 已由主程序加密保存。";
-                    MessageBox.Show("登录验证成功。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("登录验证成功。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
                     Close();
                     return;
                 }
@@ -236,7 +236,7 @@ namespace QingPriceLogin
                     StatusText.Text = "登录验证超时，子进程已终止。";
                     if (userInitiated)
                     {
-                        MessageBox.Show("验证超时。登录助手未保存 Cookie，错误信息不包含 Secret。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show("验证超时。登录助手未保存 Cookie，错误信息不包含 Secret。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                     return;
                 }
@@ -244,7 +244,7 @@ namespace QingPriceLogin
                 StatusText.Text = "登录状态未被接受，请重新登录后再试。";
                 if (userInitiated)
                 {
-                    MessageBox.Show("验证未通过。登录助手未保存 Cookie，也不会显示验证详情。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("验证未通过。登录助手未保存 Cookie，也不会显示验证详情。", "流放2查价登录助手", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             catch (Exception)

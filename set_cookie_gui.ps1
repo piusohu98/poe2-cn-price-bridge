@@ -10,13 +10,13 @@ Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
-    (Join-Path $rootPath 'QingPricePOE2.exe'),
+    (Join-Path $rootPath 'POE2PriceHelper.exe'),
     (Join-Path $rootPath 'poe2_cn_price_bridge.exe'),
     (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe')
 )
 $exe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-$bridgeExe = Join-Path $rootPath 'QingPricePOE2.exe'
-$loginHelper = Join-Path $rootPath 'QingPriceLogin.exe'
+$bridgeExe = Join-Path $rootPath 'POE2PriceHelper.exe'
+$loginHelper = Join-Path $rootPath 'POE2PriceLogin.exe'
 $loginTimeoutSeconds = 180
 function Test-CookieInput($text) {
     if ([string]::IsNullOrWhiteSpace($text)) {
@@ -34,7 +34,7 @@ function Test-CookieInput($text) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="清价 POE2 - Cookie 设置"
+        Title="流放2查价助手 - Cookie 设置"
         Width="840" Height="520"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -166,10 +166,10 @@ function Test-CookieInput($text) {
             <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="22,22,0,0" Background="#0B111A">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
-                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#5B3710" BorderBrush="#C78A2B" BorderThickness="1">
+                            <TextBlock Text="价" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#FFF4D6" FontSize="15" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="清价 POE2" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                        <TextBlock Text="流放2查价助手" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
                     </StackPanel>
                     <Button x:Name="CloseButton" Content="×" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Style="{StaticResource ChromeButton}"/>
                 </Grid>
@@ -362,7 +362,7 @@ function Save-And-ValidateCookie {
         $exeAvailable = Test-Path -LiteralPath $exe
     }
     if (-not $exeAvailable) {
-        Set-Status -Text '找不到 QingPricePOE2.exe，请确认从完整发布包中运行。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe，请确认从完整发布包中运行。' -Kind 'error'
         return
     }
 
@@ -425,7 +425,7 @@ $closeActionButton.add_Click($closeHandler)
 
 $openButton.add_Click({
     if (-not (Test-Path -LiteralPath $loginHelper)) {
-        Set-Status -Text '找不到 QingPriceLogin.exe，请确认发布包完整。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceLogin.exe，请确认发布包完整。' -Kind 'error'
         return
     }
     Set-Status -Text '正在打开微信登录助手，请扫码完成登录……'
@@ -434,7 +434,7 @@ $openButton.add_Click({
     switch ($result) {
         'success' { $startButton.IsEnabled = $true; Set-Status -Text '登录验证成功，POESESSID 已加密保存。' -Kind 'ok' }
         'existing' { $startButton.IsEnabled = $true; Set-Status -Text '登录助手已关闭，现有 Cookie 仍验证有效。' -Kind 'ok' }
-        'missing' { Set-Status -Text '找不到 QingPriceLogin.exe，请重新解压完整发布包。' -Kind 'error' }
+        'missing' { Set-Status -Text '找不到 POE2PriceLogin.exe，请重新解压完整发布包。' -Kind 'error' }
         'bridge-missing' { Set-Status -Text '找不到主程序，无法完成登录配置。' -Kind 'error' }
         'timeout' { Set-Status -Text '登录超时，已安全终止登录助手；请重试。' -Kind 'error' }
         'cancelled' { Set-Status -Text '登录已取消，未覆盖现有 Cookie。' }
@@ -479,7 +479,7 @@ $validateButton.add_Click({
         $exeAvailable = Test-Path -LiteralPath $exe
     }
     if (-not $exeAvailable) {
-        Set-Status -Text '找不到 QingPricePOE2.exe。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe。' -Kind 'error'
         return
     }
     Set-Status -Text '正在验证现有 Cookie...'

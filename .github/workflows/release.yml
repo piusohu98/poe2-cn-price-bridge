@@ -45,7 +45,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QingPricePOE2-windows-x64
+          name: POE2PriceHelper-windows-x64
           path: |
             dist/*.zip
             dist/*.sha256.txt
