@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- 需求等级解析：修复多数字行（如"需求: 等级 11, 23 智慧"）错误拼接所有数字为 "1123" 的问题，现在只提取"等级"后面的第一个数字。
+- 普通物品提示信息：普通物品（无词缀）现在显示"普通物品没有可筛选词缀"，而非通用的"未识别到词缀"；有词缀但全部未识别时仍显示"未识别到词缀"；其他空词缀情况显示"未解析到词缀"。
+- 修复 Overlay 控件重叠问题：引入 `LayoutPlan` 结构体统一管理所有区域坐标，从上到下按顺序排列（标题栏→物品详情→词缀→筛选状态→筛选动作→价格摘要→表头→表体→底部），确保 Y 坐标不交叉。
+- 区分"可见按钮"和"纯点击热区"：`UiButtonSpec` 新增 `visible` 字段，`ModToggle`、`SortLevel`、`SortPrice`、`SortTime`、`Backdrop` 等热区标记为不可见，`paint_buttons` 只绘制可见按钮。
+- 新增 `Backdrop` 标题栏热区（不可见）和 `OpenTrade` 按钮变体。
+- 列布局计算统一为 `compute_column_layout()` 函数，渲染和按钮热区共用同一套列宽。
+- 新增布局不重叠测试 `layout_plan_rects_dont_overlap` 和 Y 坐标顺序测试 `layout_plan_rects_sequential_y`。
+
 ## 0.4.0
 
 ### Added

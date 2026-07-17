@@ -2202,17 +2202,20 @@ fn parse_item_text(text: &str) -> ParsedItem {
             }
         }
         // 需求等级
-        else if lower.starts_with("需求")
-            || lower.starts_with("需要等级")
-            || lower.starts_with("等级需求")
-            || lower.starts_with("requires level")
+        else if lower.contains("需求")
+            || lower.contains("需要等级")
+            || lower.contains("等级需求")
+            || lower.contains("requires level")
         {
-            parsed.required_level = line
-                .chars()
-                .filter(char::is_ascii_digit)
-                .collect::<String>()
-                .parse::<u32>()
-                .ok();
+            if let Some(pos) = lower.find("等级") {
+                let after = &line[pos + 6..]; // 跳过"等级"两个字 (UTF-8: 3 bytes each)
+                parsed.required_level = first_number(after).map(|n| n as u32);
+            } else if let Some(pos) = lower.find("level") {
+                let after = &line[pos + 5..];
+                parsed.required_level = first_number(after).map(|n| n as u32);
+            } else {
+                parsed.required_level = first_number(line).map(|n| n as u32);
+            }
         }
         // 物理伤害 (不包含 "元素" 或 "火焰/冰霜/闪电/混沌")
         else if (lower.contains("物理伤害") || lower.contains("physical damage"))
@@ -4857,5 +4860,44 @@ mod tests {
         let text = "Rarity: Rare\n物品类别: 单手剑\n物理伤害: 30-60\n--------";
         let item = parse_item_text(text);
         assert!(item.physical_dps().is_none());
+    }
+
+    #[test]
+    fn parses_required_level_with_multiple_numbers() {
+        let text = "需求: 等级 11, 23 智慧\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(
+            item.required_level,
+            Some(11),
+            "should parse level 11, not 1123"
+        );
+    }
+
+    #[test]
+    fn parses_required_level_english() {
+        let text = "Requires Level 11, 23 Int\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.required_level, Some(11));
+    }
+
+    #[test]
+    fn parses_required_level_simple() {
+        let text = "需求等级: 60\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.required_level, Some(60));
+    }
+
+    #[test]
+    fn required_level_none_when_not_present() {
+        let text = "Rarity: Normal\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.required_level, None);
+    }
+
+    #[test]
+    fn quality_parses_first_number_only() {
+        let text = "品质: +20%\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.quality, Some(20));
     }
 }

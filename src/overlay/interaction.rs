@@ -104,6 +104,10 @@ impl OverlayInteraction for UiState {
                 UiButton::SortLevel => {
                     self.handle_sort_click(SortOrder::ItemLevelDesc, SortOrder::ItemLevelDesc)
                 }
+                UiButton::Backdrop => {
+                    // 标题栏热区，无操作
+                }
+                UiButton::OpenTrade => self.open_current_url(),
             }
             return true;
         }

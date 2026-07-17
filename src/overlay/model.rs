@@ -32,6 +32,8 @@ pub enum UiButton {
     SortTime,
     SortLevel,
     Whisper(usize),
+    Backdrop,
+    OpenTrade,
 }
 
 pub struct UiButtonSpec {
@@ -40,6 +42,8 @@ pub struct UiButtonSpec {
     pub rect: RECT,
     pub enabled: bool,
     pub primary: bool,
+    /// true = 需要绘制为可见按钮, false = 纯点击热区（不可见）
+    pub visible: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]

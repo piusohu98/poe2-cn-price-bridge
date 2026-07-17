@@ -10,17 +10,239 @@ pub fn rect_contains(rect: &RECT, x: i32, y: i32) -> bool {
     x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
 }
 
-/// Calculate the y position of the control bar (below mod list).
-/// This is shared between paint_result and button_specs.
-#[allow(dead_code)]
-pub fn compute_control_y(result: &crate::TradeResult) -> i32 {
-    let item = &result.item;
-    let details_end = compute_details_end_y(item);
-    let mods_end = compute_mods_end_y(details_end, result.item.mods.len());
-    mods_end + 4
+// ── LayoutPlan ──
+
+#[derive(Clone)]
+pub struct LayoutPlan {
+    pub title_bar: RECT,
+    pub item_details: RECT,
+    pub modifiers: RECT,
+    pub filter_status: RECT,
+    pub filter_actions: RECT,
+    pub price_summary: RECT,
+    pub table_header: RECT,
+    pub table_body: RECT,
+    #[allow(dead_code)]
+    pub footer: RECT,
 }
 
+impl LayoutPlan {
+    pub fn compute(rect: RECT, item_detail_lines: i32, modifier_count: usize) -> Self {
+        let mut y = 0;
+        let title_bar = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + 52,
+        };
+        y = 56;
+        let item_details = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + item_detail_lines * 20 + 8,
+        };
+        y = item_details.bottom + 4;
+        let mod_count = modifier_count.min(8) as i32;
+        let modifiers = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + mod_count * 22 + 28,
+        };
+        y = modifiers.bottom + 4;
+        let filter_status = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + 20,
+        };
+        y = filter_status.bottom;
+        let filter_actions = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + 24,
+        };
+        y = filter_actions.bottom + 4;
+        let price_summary = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + 48,
+        };
+        y = price_summary.bottom + 4;
+        let table_header = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: y + 24,
+        };
+        y = table_header.bottom;
+        let table_body = RECT {
+            left: 0,
+            top: y,
+            right: rect.right,
+            bottom: rect.bottom - 48,
+        };
+        let footer = RECT {
+            left: 0,
+            top: table_body.bottom,
+            right: rect.right,
+            bottom: rect.bottom,
+        };
+        Self {
+            title_bar,
+            item_details,
+            modifiers,
+            filter_status,
+            filter_actions,
+            price_summary,
+            table_header,
+            table_body,
+            footer,
+        }
+    }
+
+    /// 返回所有区域的矩形列表，用于重叠检测
+    #[allow(dead_code)]
+    pub fn all_rects(&self) -> Vec<RECT> {
+        vec![
+            self.title_bar,
+            self.item_details,
+            self.modifiers,
+            self.filter_status,
+            self.filter_actions,
+            self.price_summary,
+            self.table_header,
+            self.table_body,
+            self.footer,
+        ]
+    }
+}
+
+// ── 物品详情行数计算 ──
+
+/// 计算物品详情区的行数，与 render.rs paint_item_details 保持一致
+pub fn compute_item_detail_lines(item: &crate::ParsedItem) -> i32 {
+    let mut lines = 0i32;
+    // name
+    lines += 1;
+    // base type
+    lines += 1;
+    // basic attrs (quality / required_level / item_level)
+    let mut basic_count = 0;
+    if item.quality.is_some() {
+        basic_count += 1;
+    }
+    if item.required_level.is_some() {
+        basic_count += 1;
+    }
+    if item.item_level.is_some() {
+        basic_count += 1;
+    }
+    if basic_count > 0 {
+        lines += basic_count;
+    }
+    // weapon attrs
+    if item.is_weapon() {
+        if item.physical_damage_min.is_some() && item.physical_damage_max.is_some() {
+            lines += 1;
+        }
+        for (min, max) in &[
+            (item.fire_damage_min, item.fire_damage_max),
+            (item.cold_damage_min, item.cold_damage_max),
+            (item.lightning_damage_min, item.lightning_damage_max),
+            (item.chaos_damage_min, item.chaos_damage_max),
+        ] {
+            if min.is_some() && max.is_some() {
+                lines += 1;
+            }
+        }
+        if item.critical_strike_chance.is_some() {
+            lines += 1;
+        }
+        if item.attacks_per_second.is_some() {
+            lines += 1;
+        }
+        let has_phys = item.physical_damage_min.is_some() && item.physical_damage_max.is_some();
+        let has_elem = item.fire_damage_min.is_some()
+            || item.cold_damage_min.is_some()
+            || item.lightning_damage_min.is_some()
+            || item.chaos_damage_min.is_some();
+        if has_phys || has_elem {
+            if has_phys {
+                lines += 1;
+            }
+            if has_elem {
+                lines += 1;
+            }
+            lines += 1; // total DPS
+        }
+    }
+    // defense
+    let mut def_count = 0;
+    if item.armour.is_some() {
+        def_count += 1;
+    }
+    if item.evasion.is_some() {
+        def_count += 1;
+    }
+    if item.energy_shield.is_some() {
+        def_count += 1;
+    }
+    if def_count > 0 {
+        lines += def_count;
+    }
+    // sockets
+    if item.sockets.is_some() {
+        lines += 1;
+    }
+    lines
+}
+
+// ── 列布局 ──
+
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnLayout {
+    pub level: i32,
+    pub price: i32,
+    pub status: i32,
+    pub time: i32,
+    pub seller: i32,
+    pub action: i32,
+}
+
+pub fn compute_column_layout(table_width: i32) -> ColumnLayout {
+    let col_level_w = 40;
+    let col_status_w = 36;
+    let col_time_w = 60;
+    let col_action_w = 50;
+    let remaining = table_width - 40 - col_level_w - col_status_w - col_time_w - col_action_w;
+    let col_price_w = remaining * 3 / 10;
+    let col_seller_w = remaining * 7 / 10;
+    ColumnLayout {
+        level: col_level_w,
+        price: col_price_w,
+        status: col_status_w,
+        time: col_time_w,
+        seller: col_seller_w,
+        action: col_action_w,
+    }
+}
+
+// ── 可见行数 ──
+
+pub fn visible_row_count(table_body: &RECT) -> usize {
+    let available_height = table_body.bottom - table_body.top;
+    let row_height = 24;
+    (available_height / row_height).max(0) as usize
+}
+
+// ── 旧版兼容函数（保留给 Message 视图使用） ──
+
 /// Calculate where the item details section ends.
+#[allow(dead_code)]
 fn compute_details_end_y(item: &crate::ParsedItem) -> i32 {
     let mut y = 56;
     // name
@@ -100,6 +322,7 @@ fn compute_details_end_y(item: &crate::ParsedItem) -> i32 {
 }
 
 /// Calculate where the mod list ends.
+#[allow(dead_code)]
 fn compute_mods_end_y(details_end: i32, mod_count: usize) -> i32 {
     let mut y = details_end + 4;
     let max_display = 8;
@@ -118,7 +341,7 @@ fn compute_mods_end_y(details_end: i32, mod_count: usize) -> i32 {
 }
 
 /// Calculate table_top y position from mods_end.
-/// Must match the layout in render.rs paint_result.
+#[allow(dead_code)]
 pub fn compute_table_top(mods_end: i32, filters_dirty: bool) -> i32 {
     let control_y = mods_end + 4;
     let hint_y = control_y + 14;
@@ -130,22 +353,21 @@ pub fn compute_table_top(mods_end: i32, filters_dirty: bool) -> i32 {
     summary_y + 44 + 10
 }
 
+// ── OverlayLayout trait ──
+
 /// Extension trait for UiState's layout-related methods.
 pub trait OverlayLayout {
     fn button_specs(&self, rect: RECT) -> Vec<UiButtonSpec>;
+    fn button_specs_for_result(
+        &self,
+        plan: &LayoutPlan,
+        result: &crate::TradeResult,
+    ) -> Vec<UiButtonSpec>;
 }
 
 impl OverlayLayout for UiState {
     fn button_specs(&self, rect: RECT) -> Vec<UiButtonSpec> {
         let result = self.current_result();
-        let has_url = !self.view.current_url.is_empty();
-        let has_mods = result
-            .map(|result| !result.item.mods.is_empty())
-            .unwrap_or(false);
-        let can_prev = self.page > 0;
-        let can_next = result
-            .map(|result| (self.page + 1) * result.page_size < result.entries.len())
-            .unwrap_or(false);
 
         let mut specs = vec![
             // 固定按钮：标题栏右侧
@@ -160,6 +382,7 @@ impl OverlayLayout for UiState {
                 },
                 enabled: true,
                 primary: false,
+                visible: true,
             },
             // 关闭按钮：标题栏右侧
             UiButtonSpec {
@@ -173,6 +396,7 @@ impl OverlayLayout for UiState {
                 },
                 enabled: true,
                 primary: false,
+                visible: true,
             },
         ];
 
@@ -189,6 +413,7 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: false,
+                    visible: true,
                 },
                 UiButtonSpec {
                     button: UiButton::Cookie,
@@ -201,6 +426,7 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: true,
+                    visible: true,
                 },
                 UiButtonSpec {
                     button: UiButton::ValidateCookie,
@@ -213,6 +439,7 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: false,
+                    visible: true,
                 },
                 UiButtonSpec {
                     button: UiButton::Open,
@@ -225,6 +452,7 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: false,
+                    visible: true,
                 },
                 UiButtonSpec {
                     button: UiButton::History,
@@ -237,6 +465,7 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: false,
+                    visible: true,
                 },
                 UiButtonSpec {
                     button: UiButton::Diagnostics,
@@ -249,229 +478,245 @@ impl OverlayLayout for UiState {
                     },
                     enabled: true,
                     primary: false,
+                    visible: true,
                 },
             ]);
-        } else {
-            if let Some(result) = result {
-                let details_end = compute_details_end_y(&result.item);
-                let mods_end = compute_mods_end_y(details_end, result.item.mods.len());
-
-                // ── 词缀行按钮 ──
-                let max_display = 8;
-                let display_count = result.item.mods.len().min(max_display);
-                let mut mod_y = details_end + 4;
-                for i in 0..display_count {
-                    specs.push(UiButtonSpec {
-                        button: UiButton::ModToggle(i),
-                        label: format!("mod_{}", i),
-                        rect: RECT {
-                            left: 16,
-                            top: mod_y,
-                            right: rect.right - 16,
-                            bottom: mod_y + 22,
-                        },
-                        enabled: true,
-                        primary: false,
-                    });
-                    mod_y += 24;
-                }
-
-                // ── 重新搜索按钮 ──
-                let rerun_y = mods_end + 4;
-                specs.push(UiButtonSpec {
-                    button: UiButton::RerunSearch,
-                    label: "重新搜索".to_string(),
-                    rect: RECT {
-                        left: 16,
-                        top: rerun_y,
-                        right: 120,
-                        bottom: rerun_y + 22,
-                    },
-                    enabled: true,
-                    primary: self.filters_dirty,
-                });
-
-                // ── 控制栏按钮行 ──
-                let control_y = mods_end + 4;
-                let btn_y = control_y + 28;
-                let btn_h = 20;
-                let btn_gap = 4;
-                let btn_w = (rect.right - 32 - btn_gap * 5) / 6;
-                let btn1_x = 16;
-                let btn2_x = btn1_x + btn_w + btn_gap;
-                let btn3_x = btn2_x + btn_w + btn_gap;
-                let btn4_x = btn3_x + btn_w + btn_gap;
-                let btn5_x = btn4_x + btn_w + btn_gap;
-                let btn6_x = btn5_x + btn_w + btn_gap;
-
-                specs.extend([
-                    UiButtonSpec {
-                        button: UiButton::Mods,
-                        label: (if self.query_options.use_mods {
-                            "同属性开"
-                        } else {
-                            "同属性"
-                        })
-                        .to_string(),
-                        rect: RECT {
-                            left: btn1_x,
-                            top: btn_y,
-                            right: btn1_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: has_mods,
-                        primary: self.query_options.use_mods,
-                    },
-                    UiButtonSpec {
-                        button: UiButton::Values,
-                        label: (if self.query_options.use_values {
-                            "数值开"
-                        } else {
-                            "数值"
-                        })
-                        .to_string(),
-                        rect: RECT {
-                            left: btn2_x,
-                            top: btn_y,
-                            right: btn2_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: has_mods,
-                        primary: self.query_options.use_values,
-                    },
-                    UiButtonSpec {
-                        button: UiButton::Prev,
-                        label: "上一页".to_string(),
-                        rect: RECT {
-                            left: btn3_x,
-                            top: btn_y,
-                            right: btn3_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: can_prev,
-                        primary: false,
-                    },
-                    UiButtonSpec {
-                        button: UiButton::Next,
-                        label: "下一页".to_string(),
-                        rect: RECT {
-                            left: btn4_x,
-                            top: btn_y,
-                            right: btn4_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: can_next,
-                        primary: false,
-                    },
-                    UiButtonSpec {
-                        button: UiButton::Open,
-                        label: "打开市集".to_string(),
-                        rect: RECT {
-                            left: btn5_x,
-                            top: btn_y,
-                            right: btn5_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: true,
-                        primary: false,
-                    },
-                    UiButtonSpec {
-                        button: UiButton::Copy,
-                        label: "复制链接".to_string(),
-                        rect: RECT {
-                            left: btn6_x,
-                            top: btn_y,
-                            right: btn6_x + btn_w,
-                            bottom: btn_y + btn_h,
-                        },
-                        enabled: has_url,
-                        primary: false,
-                    },
-                ]);
-
-                // 列宽计算（与 render.rs 保持一致）
-                let col_level_w = 40;
-                let col_status_w = 36;
-                let col_time_w = 60;
-                let col_action_w = 50;
-                let remaining =
-                    rect.right - 40 - col_level_w - col_status_w - col_time_w - col_action_w;
-                let _col_price_w = remaining * 3 / 10;
-                let col_seller_w = remaining * 7 / 10;
-
-                let header_left = 20;
-                let col_price_x = header_left + col_level_w;
-                let col_time_x = header_left + col_level_w + _col_price_w + col_status_w;
-                let col_action_x = header_left
-                    + col_level_w
-                    + _col_price_w
-                    + col_status_w
-                    + col_time_w
-                    + col_seller_w;
-
-                // 表头排序按钮
-                let table_top = compute_table_top(mods_end, self.filters_dirty);
-                let header_height = 28;
-                specs.push(UiButtonSpec {
-                    button: UiButton::SortLevel,
-                    label: "排序-等级".to_string(),
-                    rect: RECT {
-                        left: header_left,
-                        top: table_top,
-                        right: header_left + col_level_w,
-                        bottom: table_top + header_height,
-                    },
-                    enabled: true,
-                    primary: false,
-                });
-                specs.push(UiButtonSpec {
-                    button: UiButton::SortPrice,
-                    label: "排序-价格".to_string(),
-                    rect: RECT {
-                        left: col_price_x,
-                        top: table_top,
-                        right: col_price_x + _col_price_w,
-                        bottom: table_top + header_height,
-                    },
-                    enabled: true,
-                    primary: false,
-                });
-                specs.push(UiButtonSpec {
-                    button: UiButton::SortTime,
-                    label: "排序-时间".to_string(),
-                    rect: RECT {
-                        left: col_time_x,
-                        top: table_top,
-                        right: col_time_x + col_time_w,
-                        bottom: table_top + header_height,
-                    },
-                    enabled: true,
-                    primary: false,
-                });
-
-                // 每行的私聊按钮
-                let page_size = result.page_size.max(1);
-                let pages = std::cmp::max(1, result.entries.len().div_ceil(page_size));
-                let page = min(self.page, pages - 1);
-                let visible_start = page * page_size;
-                let visible_entries = result.entries.iter().skip(visible_start).take(page_size);
-                for (idx, _entry) in visible_entries.enumerate() {
-                    let row_top = table_top + header_height + idx as i32 * 24;
-                    specs.push(UiButtonSpec {
-                        button: UiButton::Whisper(visible_start + idx),
-                        label: "私聊".to_string(),
-                        rect: RECT {
-                            left: col_action_x + 3,
-                            top: row_top + 2,
-                            right: col_action_x + col_action_w - 3,
-                            bottom: row_top + 22,
-                        },
-                        enabled: true,
-                        primary: false,
-                    });
-                }
-            }
+        } else if let Some(result) = result {
+            let detail_lines = compute_item_detail_lines(&result.item);
+            let plan = LayoutPlan::compute(rect, detail_lines, result.item.mods.len());
+            specs.extend(self.button_specs_for_result(&plan, result));
         }
+        specs
+    }
+
+    fn button_specs_for_result(
+        &self,
+        plan: &LayoutPlan,
+        result: &crate::TradeResult,
+    ) -> Vec<UiButtonSpec> {
+        let has_url = !self.view.current_url.is_empty();
+        let has_mods = !result.item.mods.is_empty();
+        let can_prev = self.page > 0;
+        let can_next = (self.page + 1) * result.page_size < result.entries.len();
+
+        let mut specs = Vec::new();
+
+        // 标题栏热区（不可见）
+        specs.push(UiButtonSpec {
+            button: UiButton::Backdrop,
+            rect: plan.title_bar,
+            label: String::new(),
+            enabled: true,
+            primary: false,
+            visible: false,
+        });
+
+        // 词缀热区（不可见，paint_modifier_list 单独绘制）
+        let mod_count = result.item.mods.len().min(8);
+        for i in 0..mod_count {
+            let y = plan.modifiers.top + 4 + i as i32 * 22;
+            specs.push(UiButtonSpec {
+                button: UiButton::ModToggle(i),
+                rect: RECT {
+                    left: 16,
+                    top: y,
+                    right: plan.modifiers.right - 16,
+                    bottom: y + 22,
+                },
+                label: String::new(),
+                enabled: true,
+                primary: false,
+                visible: false,
+            });
+        }
+
+        // 重新搜索按钮（可见，在词缀区底部）
+        specs.push(UiButtonSpec {
+            button: UiButton::RerunSearch,
+            label: "重新搜索".to_string(),
+            rect: RECT {
+                left: 16,
+                top: plan.modifiers.bottom - 24,
+                right: 120,
+                bottom: plan.modifiers.bottom,
+            },
+            enabled: true,
+            primary: self.filters_dirty,
+            visible: true,
+        });
+
+        // 筛选动作按钮（可见）
+        let act = &plan.filter_actions;
+        let btn_w = (act.right - 32 - 5 * 4) / 6;
+        let mut x = 16;
+        specs.push(UiButtonSpec {
+            button: UiButton::Mods,
+            label: (if self.query_options.use_mods {
+                "同属性开"
+            } else {
+                "同属性"
+            })
+            .to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: has_mods,
+            primary: self.query_options.use_mods,
+            visible: true,
+        });
+        x += btn_w + 4;
+        specs.push(UiButtonSpec {
+            button: UiButton::Values,
+            label: (if self.query_options.use_values {
+                "数值开"
+            } else {
+                "数值"
+            })
+            .to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: has_mods,
+            primary: self.query_options.use_values,
+            visible: true,
+        });
+        x += btn_w + 4;
+        specs.push(UiButtonSpec {
+            button: UiButton::Prev,
+            label: "上一页".to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: can_prev,
+            primary: false,
+            visible: true,
+        });
+        x += btn_w + 4;
+        specs.push(UiButtonSpec {
+            button: UiButton::Next,
+            label: "下一页".to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: can_next,
+            primary: false,
+            visible: true,
+        });
+        x += btn_w + 4;
+        specs.push(UiButtonSpec {
+            button: UiButton::OpenTrade,
+            label: "打开市集".to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: true,
+            primary: false,
+            visible: true,
+        });
+        x += btn_w + 4;
+        specs.push(UiButtonSpec {
+            button: UiButton::Copy,
+            label: "复制链接".to_string(),
+            rect: RECT {
+                left: x,
+                top: act.top,
+                right: x + btn_w,
+                bottom: act.bottom,
+            },
+            enabled: has_url,
+            primary: false,
+            visible: true,
+        });
+
+        // 表头排序热区（不可见）
+        let col_layout = compute_column_layout(plan.table_header.right - 20);
+        let mut col_x = 20;
+        specs.push(UiButtonSpec {
+            button: UiButton::SortLevel,
+            rect: RECT {
+                left: col_x,
+                top: plan.table_header.top,
+                right: col_x + col_layout.level,
+                bottom: plan.table_header.bottom,
+            },
+            label: String::new(),
+            enabled: true,
+            primary: false,
+            visible: false,
+        });
+        col_x += col_layout.level;
+        specs.push(UiButtonSpec {
+            button: UiButton::SortPrice,
+            rect: RECT {
+                left: col_x,
+                top: plan.table_header.top,
+                right: col_x + col_layout.price,
+                bottom: plan.table_header.bottom,
+            },
+            label: String::new(),
+            enabled: true,
+            primary: false,
+            visible: false,
+        });
+        col_x += col_layout.price + col_layout.status + col_layout.time;
+        // 时间排序热区
+        specs.push(UiButtonSpec {
+            button: UiButton::SortTime,
+            rect: RECT {
+                left: col_x,
+                top: plan.table_header.top,
+                right: col_x + col_layout.time,
+                bottom: plan.table_header.bottom,
+            },
+            label: String::new(),
+            enabled: true,
+            primary: false,
+            visible: false,
+        });
+
+        // 私聊按钮（可见）
+        let visible_rows = visible_row_count(&plan.table_body);
+        let page_size = result.page_size.max(1);
+        let pages = std::cmp::max(1, result.entries.len().div_ceil(page_size));
+        let page = min(self.page, pages - 1);
+        let visible_start = page * page_size;
+        let visible_entries = result.entries.iter().skip(visible_start).take(page_size);
+        for (idx, _entry) in visible_entries.enumerate() {
+            if idx >= visible_rows {
+                break;
+            }
+            let ry = plan.table_body.top + 2 + idx as i32 * 24;
+            let cx = plan.table_body.right - 50;
+            specs.push(UiButtonSpec {
+                button: UiButton::Whisper(visible_start + idx),
+                label: "私聊".to_string(),
+                rect: RECT {
+                    left: cx,
+                    top: ry,
+                    right: cx + 44,
+                    bottom: ry + 20,
+                },
+                enabled: true,
+                primary: false,
+                visible: true,
+            });
+        }
+
         specs
     }
 }
@@ -508,41 +753,71 @@ mod tests {
     }
 
     #[test]
-    fn button_specs_rects_dont_overlap_within_group() {
-        let w = 580i32;
-        let h = 780i32;
-        let rect = RECT {
-            left: 0,
-            top: 0,
-            right: w,
-            bottom: h,
-        };
-
-        assert!(rect_contains(&rect, 0, 0));
-        assert!(rect_contains(&rect, w - 1, h - 1));
-    }
-
-    #[test]
     fn table_column_widths_dont_overflow_window() {
         let w = 580i32;
-        let col_level_w = 40;
-        let col_status_w = 36;
-        let col_time_w = 60;
-        let col_action_w = 50;
-        let remaining = w - 40 - col_level_w - col_status_w - col_time_w - col_action_w;
-        let col_price_w = remaining * 3 / 10;
-        let col_seller_w = remaining * 7 / 10;
-        let total = 20
-            + col_level_w
-            + col_price_w
-            + col_status_w
-            + col_time_w
-            + col_seller_w
-            + col_action_w
-            + 20;
+        let col = compute_column_layout(w - 20);
+        let total =
+            20 + col.level + col.price + col.status + col.time + col.seller + col.action + 20;
         assert!(
             total <= w,
             "total column width {total} exceeds window width {w}"
         );
+    }
+
+    #[test]
+    fn layout_plan_rects_dont_overlap() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let rects = plan.all_rects();
+        for i in 0..rects.len() {
+            for j in (i + 1)..rects.len() {
+                let a = rects[i];
+                let b = rects[j];
+                let overlap_x = a.left < b.right && a.right > b.left;
+                let overlap_y = a.top < b.bottom && a.bottom > b.top;
+                assert!(
+                    !(overlap_x && overlap_y),
+                    "rects {} and {} overlap: ({},{},{},{}) and ({},{},{},{})",
+                    i,
+                    j,
+                    a.left,
+                    a.top,
+                    a.right,
+                    a.bottom,
+                    b.left,
+                    b.top,
+                    b.right,
+                    b.bottom
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn layout_plan_rects_sequential_y() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let rects = plan.all_rects();
+        // 验证每个区域 Y 坐标按顺序排列，不交叉
+        for i in 0..rects.len() - 1 {
+            assert!(
+                rects[i].bottom <= rects[i + 1].top,
+                "rect {} bottom {} > rect {} top {}",
+                i,
+                rects[i].bottom,
+                i + 1,
+                rects[i + 1].top
+            );
+        }
     }
 }

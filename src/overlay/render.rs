@@ -9,7 +9,9 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
 
-use crate::overlay::layout::OverlayLayout;
+use crate::overlay::layout::{
+    LayoutPlan, OverlayLayout, compute_column_layout, compute_item_detail_lines,
+};
 use crate::overlay::model::{UiButton, ViewKind};
 use crate::overlay::theme;
 use crate::{
@@ -64,8 +66,8 @@ pub trait OverlayRenderer {
     unsafe fn paint(&self);
     unsafe fn paint_value_tier_badge(&self, hdc: HDC, rect: RECT, tier: ItemValueTier);
     unsafe fn paint_message(&self, hdc: HDC, rect: RECT, lines: &[String]);
-    unsafe fn paint_buttons(&self, hdc: HDC, rect: RECT);
-    unsafe fn paint_result(&self, hdc: HDC, rect: RECT, result: &TradeResult);
+    unsafe fn paint_buttons(&self, hdc: HDC, specs: &[crate::overlay::model::UiButtonSpec]);
+    unsafe fn paint_result(&self, hdc: HDC, plan: &LayoutPlan, result: &TradeResult);
     #[allow(dead_code)]
     unsafe fn paint_item_details(&self, hdc: HDC, rect: RECT, result: &TradeResult) -> i32;
     #[allow(dead_code)]
@@ -146,11 +148,55 @@ impl OverlayRenderer for UiState {
             ViewKind::Message(lines) => self.paint_message(hdc, rect, lines),
             ViewKind::Result(result) => {
                 self.paint_value_tier_badge(hdc, rect, result.value_tier);
-                self.paint_result(hdc, rect, result);
+                let detail_lines = compute_item_detail_lines(&result.item);
+                let plan = LayoutPlan::compute(rect, detail_lines, result.item.mods.len());
+                self.paint_result(hdc, &plan, result);
+                let specs = self.button_specs(rect);
+                self.paint_buttons(hdc, &specs);
+                // 底部状态栏
+                let status = if self.view.status.is_empty() {
+                    if self.pinned {
+                        "面板已固定".to_string()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    self.view.status.clone()
+                };
+                // 左侧：快捷键提示
+                draw_text(
+                    hdc,
+                    "快捷键: ←→ 翻页  M 切换属性  V 数值  P 固定  C 复制  O 市集  Esc 关闭",
+                    RECT {
+                        left: 16,
+                        top: rect.bottom - 44,
+                        right: rect.right - 200,
+                        bottom: rect.bottom - 14,
+                    },
+                    theme::TEXT_HINT,
+                    self.fonts.small,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+                // 右侧：状态文字
+                draw_text(
+                    hdc,
+                    &status,
+                    RECT {
+                        left: rect.right - 200,
+                        top: rect.bottom - 44,
+                        right: rect.right - 16,
+                        bottom: rect.bottom - 14,
+                    },
+                    theme::TEXT_MUTED,
+                    self.fonts.small,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+                EndPaint(self.hwnd, &ps);
+                return;
             }
         }
 
-        self.paint_buttons(hdc, rect);
+        self.paint_buttons(hdc, &self.button_specs(rect));
 
         // 底部状态栏
         let status = if self.view.status.is_empty() {
@@ -244,8 +290,11 @@ impl OverlayRenderer for UiState {
         }
     }
 
-    unsafe fn paint_buttons(&self, hdc: HDC, rect: RECT) {
-        for spec in self.button_specs(rect) {
+    unsafe fn paint_buttons(&self, hdc: HDC, specs: &[crate::overlay::model::UiButtonSpec]) {
+        for spec in specs {
+            if !spec.visible {
+                continue;
+            }
             let is_hovered = self.hovered_button == Some(spec.button);
             let (fill_color, border_color, text_color) = if !spec.enabled {
                 (
@@ -304,14 +353,35 @@ impl OverlayRenderer for UiState {
         }
     }
 
-    unsafe fn paint_result(&self, hdc: HDC, rect: RECT, result: &TradeResult) {
+    unsafe fn paint_result(&self, hdc: HDC, plan: &LayoutPlan, result: &TradeResult) {
+        let rect_width = plan.title_bar.right;
+
         // ── 物品详情区 ──
-        let details_end_y = self.paint_item_details(hdc, rect, result);
+        let _details_end_y = self.paint_item_details(
+            hdc,
+            RECT {
+                left: 0,
+                top: 0,
+                right: rect_width,
+                bottom: plan.item_details.bottom,
+            },
+            result,
+        );
 
         // ── 词缀筛选区 ──
-        let mods_end_y = self.paint_modifier_list(hdc, rect, result, details_end_y);
+        let _mods_end_y = self.paint_modifier_list(
+            hdc,
+            RECT {
+                left: 0,
+                top: 0,
+                right: rect_width,
+                bottom: plan.modifiers.bottom,
+            },
+            result,
+            plan.modifiers.top,
+        );
 
-        let control_y = mods_end_y + 4;
+        let _control_y = plan.filter_status.top;
 
         // ── 搜索控制栏 ──
         let page_size = result.page_size.max(1);
@@ -361,9 +431,9 @@ impl OverlayRenderer for UiState {
             &filter_line,
             RECT {
                 left: 18,
-                top: control_y,
-                right: rect.right - 18,
-                bottom: control_y + 14,
+                top: plan.filter_status.top,
+                right: rect_width - 18,
+                bottom: plan.filter_status.top + 14,
             },
             theme::TEXT_MUTED,
             self.fonts.small,
@@ -371,15 +441,15 @@ impl OverlayRenderer for UiState {
         );
 
         // ── 筛选提示 ──
-        let hint_y = control_y + 14;
         if self.filters_dirty {
+            let hint_y = plan.filter_status.top + 14;
             draw_text(
                 hdc,
                 "筛选条件已更改，请点击重新搜索",
                 RECT {
                     left: 18,
                     top: hint_y,
-                    right: rect.right - 18,
+                    right: rect_width - 18,
                     bottom: hint_y + 16,
                 },
                 theme::WARNING_TEXT,
@@ -388,11 +458,7 @@ impl OverlayRenderer for UiState {
             );
         }
 
-        let summary_y = if self.filters_dirty {
-            hint_y + 22
-        } else {
-            hint_y + 6
-        };
+        let summary_y = plan.price_summary.top;
 
         // ── 价格摘要区 ──
         let priced = result
@@ -413,7 +479,7 @@ impl OverlayRenderer for UiState {
 
         let summary_h = 44;
         let gap = 10;
-        let card_w = (rect.right - 32 - gap * 2) / 3;
+        let card_w = (rect_width - 32 - gap * 2) / 3;
 
         let card1_x = 16;
         let card2_x = card1_x + card_w + gap;
@@ -540,28 +606,22 @@ impl OverlayRenderer for UiState {
         );
 
         // ── 挂单列表 ──
-        let table_top = summary_y + summary_h + 10;
-        let available_height = rect.bottom - 48 - table_top;
-        let header_height = 28;
+        let table_top = plan.table_header.top;
+        let header_height = (plan.table_header.bottom - plan.table_header.top).max(28);
+        let available_height = plan.table_body.bottom - plan.table_body.top;
         let row_height = 24;
         let visible_rows = ((available_height - header_height) / row_height).max(0) as usize;
 
-        // 列宽计算
-        let col_level_w = 40;
-        let col_status_w = 36;
-        let col_time_w = 60;
-        let col_action_w = 50;
-        let remaining = rect.right - 40 - col_level_w - col_status_w - col_time_w - col_action_w;
-        let col_price_w = remaining * 3 / 10;
-        let col_seller_w = remaining * 7 / 10;
+        // 列宽计算（使用统一的 compute_column_layout）
+        let col = compute_column_layout(plan.table_header.right - 20);
 
         let header_left = 20;
         let col_level_x = header_left;
-        let col_price_x = col_level_x + col_level_w;
-        let col_status_x = col_price_x + col_price_w;
-        let col_time_x = col_status_x + col_status_w;
-        let col_seller_x = col_time_x + col_time_w;
-        let col_action_x = col_seller_x + col_seller_w;
+        let col_price_x = col_level_x + col.level;
+        let col_status_x = col_price_x + col.price;
+        let col_time_x = col_status_x + col.status;
+        let col_seller_x = col_time_x + col.time;
+        let col_action_x = col_seller_x + col.seller;
 
         // 排序方向箭头
         let (price_arrow, time_arrow, level_arrow) = match self.current_sort {
@@ -578,7 +638,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: header_left,
                 top: table_top,
-                right: col_action_x + col_action_w,
+                right: col_action_x + col.action,
                 bottom: table_top + header_height,
             },
             theme::BG_TABLE_HEADER,
@@ -597,7 +657,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_level_x,
                 top: table_top,
-                right: col_level_x + col_level_w,
+                right: col_level_x + col.level,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -616,7 +676,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_price_x,
                 top: table_top,
-                right: col_price_x + col_price_w,
+                right: col_price_x + col.price,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -630,7 +690,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_status_x,
                 top: table_top,
-                right: col_status_x + col_status_w,
+                right: col_status_x + col.status,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -649,7 +709,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_time_x,
                 top: table_top,
-                right: col_time_x + col_time_w,
+                right: col_time_x + col.time,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -663,7 +723,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_seller_x,
                 top: table_top,
-                right: col_seller_x + col_seller_w,
+                right: col_seller_x + col.seller,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -677,7 +737,7 @@ impl OverlayRenderer for UiState {
             RECT {
                 left: col_action_x,
                 top: table_top,
-                right: col_action_x + col_action_w,
+                right: col_action_x + col.action,
                 bottom: table_top + header_height,
             },
             theme::TEXT_HEADER,
@@ -699,7 +759,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: 18,
                     top: table_top + header_height + 14,
-                    right: rect.right - 18,
+                    right: rect_width - 18,
                     bottom: table_top + header_height + 50,
                 },
                 theme::WARNING_TEXT,
@@ -730,7 +790,7 @@ impl OverlayRenderer for UiState {
             let row_rect = RECT {
                 left: header_left,
                 top,
-                right: col_action_x + col_action_w,
+                right: col_action_x + col.action,
                 bottom: top + row_height,
             };
             if visible_rows > 0 && idx == visible_entries.len() - 1 {
@@ -750,7 +810,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: col_level_x,
                     top,
-                    right: col_level_x + col_level_w,
+                    right: col_level_x + col.level,
                     bottom: top + row_height,
                 },
                 theme::TEXT_MUTED,
@@ -765,7 +825,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: col_price_x,
                     top,
-                    right: col_price_x + col_price_w,
+                    right: col_price_x + col.price,
                     bottom: top + row_height,
                 },
                 theme::ROW_PRICE,
@@ -790,7 +850,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: col_status_x,
                     top,
-                    right: col_status_x + col_status_w,
+                    right: col_status_x + col.status,
                     bottom: top + row_height,
                 },
                 status_color,
@@ -810,7 +870,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: col_time_x,
                     top,
-                    right: col_time_x + col_time_w,
+                    right: col_time_x + col.time,
                     bottom: top + row_height,
                 },
                 theme::TEXT_MUTED,
@@ -825,7 +885,7 @@ impl OverlayRenderer for UiState {
                 RECT {
                     left: col_seller_x,
                     top,
-                    right: col_seller_x + col_seller_w,
+                    right: col_seller_x + col.seller,
                     bottom: top + row_height,
                 },
                 theme::ROW_SELLER,
@@ -835,7 +895,7 @@ impl OverlayRenderer for UiState {
 
             // 操作列：私聊按钮
             let btn_left = col_action_x + 3;
-            let btn_right = col_action_x + col_action_w - 3;
+            let btn_right = col_action_x + col.action - 3;
             let btn_rect = RECT {
                 left: btn_left,
                 top: top + 2,
@@ -1271,6 +1331,26 @@ impl OverlayRenderer for UiState {
         }
 
         if item_mods.is_empty() {
+            let empty_msg = if result.item.rarity == "normal" {
+                "普通物品没有可筛选词缀"
+            } else {
+                "未解析到词缀"
+            };
+            draw_text(
+                hdc,
+                empty_msg,
+                RECT {
+                    left: 16,
+                    top: y,
+                    right: rect.right - 16,
+                    bottom: y + 18,
+                },
+                theme::TEXT_MUTED,
+                self.fonts.small,
+                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
+            );
+            y += 20;
+        } else if item_mods.iter().all(|m| m.stat_id.is_none()) {
             draw_text(
                 hdc,
                 "未识别到词缀",
