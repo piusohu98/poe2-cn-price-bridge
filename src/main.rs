@@ -3456,6 +3456,8 @@ impl UiState {
                 options,
                 accent,
             } => {
+                // 重置筛选状态，避免成功结果继续显示旧警告
+                self.filters_dirty = false;
                 // 创建一个仅包含物品信息的"空" TradeResult
                 let result = TradeResult {
                     item: (*item).clone(),

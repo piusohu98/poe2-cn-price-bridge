@@ -273,9 +273,7 @@ impl OverlayRenderer for UiState {
             plan.modifiers.top,
         );
 
-        let _control_y = plan.filter_status.top;
-
-        // ── 搜索控制栏 ──
+        // ── 筛选状态 ──
         let visible_rows = visible_row_count(&plan.table_body);
         let page_size = visible_rows.max(1);
         let pages = max(1, result.entries.len().div_ceil(page_size));
@@ -287,34 +285,19 @@ impl OverlayRenderer for UiState {
             .iter()
             .filter(|item_mod| item_mod.stat_id.is_some())
             .count();
-        let mod_mode = if self.query_options.use_mods {
-            "同属性 开"
-        } else {
-            "同属性 关"
-        };
-        let value_mode = if self.query_options.use_values {
-            "数值 开"
-        } else {
-            "数值 关"
-        };
-        let selected_mod_count = if self.query_options.use_mods {
-            self.query_options
-                .selected_mod_patterns
-                .as_ref()
-                .map(|patterns| patterns.len())
-                .unwrap_or(detected_mods)
-        } else {
-            0
-        };
-        let filter_line = if detected_mods > 0 {
-            format!(
-                "{mod_mode}   {value_mode}   已选属性 {selected_mod_count}/{detected_mods}   匹配 {matched_mods}/{detected_mods}   第 {}/{} 页",
-                page + 1,
-                pages
-            )
+        let filter_line = if detected_mods == 0 {
+            if result.item.rarity == "Normal" || result.item.rarity == "普通" {
+                "普通物品没有可筛选词缀".to_string()
+            } else {
+                "未解析到词缀".to_string()
+            }
+        } else if matched_mods == 0 {
+            "未识别到词缀".to_string()
         } else {
             format!(
-                "{mod_mode}   {value_mode}   未识别到可筛选属性   第 {}/{} 页",
+                "已识别 {}/{} 条交易属性   第 {}/{} 页",
+                matched_mods,
+                detected_mods,
                 page + 1,
                 pages
             )
@@ -338,7 +321,7 @@ impl OverlayRenderer for UiState {
             let hint_y = plan.filter_status.top + 14;
             draw_text(
                 hdc,
-                "筛选条件已更改，请点击重新搜索",
+                "条件已修改 — 点击重新搜索以应用",
                 RECT {
                     left: 18,
                     top: hint_y,
@@ -1250,43 +1233,6 @@ impl OverlayRenderer for UiState {
             draw_text(
                 hdc,
                 &format!("... 还有 {} 条词缀", remaining),
-                RECT {
-                    left: 16,
-                    top: y,
-                    right: rect.right - 16,
-                    bottom: y + 18,
-                },
-                theme::TEXT_MUTED,
-                self.fonts.small,
-                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            y += 20;
-        }
-
-        if item_mods.is_empty() {
-            let empty_msg = if result.item.rarity == "normal" {
-                "普通物品没有可筛选词缀"
-            } else {
-                "未解析到词缀"
-            };
-            draw_text(
-                hdc,
-                empty_msg,
-                RECT {
-                    left: 16,
-                    top: y,
-                    right: rect.right - 16,
-                    bottom: y + 18,
-                },
-                theme::TEXT_MUTED,
-                self.fonts.small,
-                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            y += 20;
-        } else if item_mods.iter().all(|m| m.stat_id.is_none()) {
-            draw_text(
-                hdc,
-                "未识别到词缀",
                 RECT {
                     left: 16,
                     top: y,

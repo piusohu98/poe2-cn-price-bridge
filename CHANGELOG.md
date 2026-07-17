@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- 优化词缀识别状态与筛选提示：消除重复的"未识别"信息。词缀行已显示状态（已选中/未选中/未识别），不再在词缀列表底部重复汇总；filter_status 区域改为显示统计信息（已识别 X/Y 条交易属性），区分三种状态（无词缀/未识别/已识别）。filter_status 高度调整为 30px，确保筛选状态文字和条件变更提示各占独立行，不与 filter_actions 按钮区域重叠。filters_dirty 只在一个位置显示"条件已修改 — 点击重新搜索以应用"。查询开始后重置 filters_dirty，避免成功结果继续显示旧警告。
 - 修复每行出现两个私聊按钮的问题：删除 render.rs 中表格行的手动绘制（rounded_rect + draw_text），仅保留 layout.rs 的 UiButtonSpec + paint_buttons 路径，确保每行只有一个私聊按钮。
 - 完善复制私聊功能：复制成功后调用 touch_activity() 刷新自动隐藏计时器。
 - 修复 Overlay 在鼠标移动时持续闪烁的问题：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），禁用系统背景擦除（WM_ERASEBKGND 返回 1），添加 WM_MOUSELEAVE 追踪，仅当 hover 按钮变化时才触发重绘。

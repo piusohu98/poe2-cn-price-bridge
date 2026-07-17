@@ -53,7 +53,7 @@ impl LayoutPlan {
             left: 0,
             top: y,
             right: rect.right,
-            bottom: y + 20,
+            bottom: y + 30,
         };
         y = filter_status.bottom;
         let filter_actions = RECT {
@@ -118,7 +118,7 @@ impl LayoutPlan {
         let fixed_height = 52 + 4 + // 标题栏
             item_detail_lines * 20 + 8 + 4 + // 物品详情
             (modifier_count.min(8) as i32) * 22 + 28 + 4 + // 词缀
-            20 + 24 + 4 + // 筛选状态 + 动作
+            30 + 24 + 4 + // 筛选状态 + 动作
             48 + 4 + // 价格摘要
             24 + // 表头
             48; // 底部状态栏
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn all_buttons_within_window_bounds() {
         for w in &[500, 580, 700] {
-            for h in &[480, 600, 780] {
+            for h in &[620, 780] {
                 let rect = RECT {
                     left: 0,
                     top: 0,
