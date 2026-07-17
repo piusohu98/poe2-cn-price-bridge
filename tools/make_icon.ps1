@@ -7,58 +7,22 @@ Add-Type -AssemblyName System.Drawing
 
 $assets = Join-Path $Root 'assets'
 New-Item -ItemType Directory -Force -Path $assets | Out-Null
+$sourceImagePath = Join-Path $assets 'app_source.png'
+if (-not (Test-Path -LiteralPath $sourceImagePath)) {
+    throw "Icon source image is missing: $sourceImagePath"
+}
 
 function New-IconPngBytes {
     param([int] $Size)
 
+    # 从统一源图高质量缩放，确保预览图和嵌入 EXE 的各尺寸图标一致。
+    $source = [System.Drawing.Image]::FromFile($sourceImagePath)
     $bitmap = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-    $graphics.Clear([System.Drawing.Color]::Transparent)
-
-    $scale = $Size / 256.0
-    function S([float] $Value) { [int][Math]::Round($Value * $scale) }
-
-    $rect = New-Object System.Drawing.Rectangle (S 12), (S 12), (S 232), (S 232)
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $radius = S 46
-    $path.AddArc($rect.X, $rect.Y, $radius, $radius, 180, 90)
-    $path.AddArc($rect.Right - $radius, $rect.Y, $radius, $radius, 270, 90)
-    $path.AddArc($rect.Right - $radius, $rect.Bottom - $radius, $radius, $radius, 0, 90)
-    $path.AddArc($rect.X, $rect.Bottom - $radius, $radius, $radius, 90, 90)
-    $path.CloseFigure()
-
-    $bg = New-Object System.Drawing.Drawing2D.LinearGradientBrush $rect, ([System.Drawing.Color]::FromArgb(20,25,34)), ([System.Drawing.Color]::FromArgb(6,8,12)), 45
-    $graphics.FillPath($bg, $path)
-    $outline = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(36,50,68)), (S 5)
-    $graphics.DrawPath($outline, $path)
-
-    $coin = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(216,168,52)), (S 18)
-    $coin.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $coin.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $graphics.DrawEllipse($coin, (S 48), (S 48), (S 160), (S 160))
-
-    $jade = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(52,211,153)), (S 18)
-    $jade.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $jade.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $jade.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-    $points = [System.Drawing.Point[]]@(
-        (New-Object System.Drawing.Point (S 71), (S 145)),
-        (New-Object System.Drawing.Point (S 105), (S 111)),
-        (New-Object System.Drawing.Point (S 130), (S 136)),
-        (New-Object System.Drawing.Point (S 181), (S 85))
-    )
-    $graphics.DrawLines($jade, $points)
-    $graphics.DrawLine($jade, (S 183), (S 85), (S 183), (S 128))
-    $graphics.DrawLine($jade, (S 183), (S 128), (S 141), (S 128))
-
-    $font = New-Object System.Drawing.Font 'Microsoft YaHei UI', (S 64), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $format = New-Object System.Drawing.StringFormat
-    $format.Alignment = [System.Drawing.StringAlignment]::Center
-    $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(232,255,247))
-    $graphics.DrawString(([string][char]0x6E05), $font, $brush, (New-Object System.Drawing.RectangleF 0, (S 146), $Size, (S 72)), $format)
+    $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+    $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $graphics.DrawImage($source, 0, 0, $Size, $Size)
 
     $stream = New-Object System.IO.MemoryStream
     $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -66,14 +30,7 @@ function New-IconPngBytes {
 
     $graphics.Dispose()
     $bitmap.Dispose()
-    $path.Dispose()
-    $bg.Dispose()
-    $outline.Dispose()
-    $coin.Dispose()
-    $jade.Dispose()
-    $font.Dispose()
-    $format.Dispose()
-    $brush.Dispose()
+    $source.Dispose()
     $stream.Dispose()
 
     return ,$bytes

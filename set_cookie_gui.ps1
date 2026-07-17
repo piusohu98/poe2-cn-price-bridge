@@ -10,20 +10,14 @@ Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
-    (Join-Path $rootPath 'QingPricePOE2.exe'),
+    (Join-Path $rootPath 'POE2PriceHelper.exe'),
     (Join-Path $rootPath 'poe2_cn_price_bridge.exe'),
     (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe')
 )
 $exe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-$tradeHome = 'https://poe.game.qq.com/trade2'
-$cookieHelp = @"
-1. 打开 https://poe.game.qq.com/trade2 并登录。
-2. 按 F12 打开开发者工具。
-3. 进入 Application/应用 -> Cookies -> https://poe.game.qq.com。
-4. 找到 POESESSID，复制 Value 的值。
-5. 回到清价窗口，点击“从剪贴板识别”或直接粘贴后保存。
-"@
-
+$bridgeExe = Join-Path $rootPath 'POE2PriceHelper.exe'
+$loginHelper = Join-Path $rootPath 'POE2PriceLogin.exe'
+$loginTimeoutSeconds = 180
 function Test-CookieInput($text) {
     if ([string]::IsNullOrWhiteSpace($text)) {
         return $false
@@ -40,7 +34,7 @@ function Test-CookieInput($text) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="清价 POE2 - Cookie 设置"
+        Title="流放2查价助手 - Cookie 设置"
         Width="840" Height="520"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -172,10 +166,10 @@ function Test-CookieInput($text) {
             <Border x:Name="TitleBar" Grid.Row="0" CornerRadius="22,22,0,0" Background="#0B111A">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
-                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#5B3710" BorderBrush="#C78A2B" BorderThickness="1">
+                            <TextBlock Text="价" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#FFF4D6" FontSize="15" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="清价 POE2" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
+                        <TextBlock Text="流放2查价助手" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Foreground="#E8F1F8"/>
                     </StackPanel>
                     <Button x:Name="CloseButton" Content="×" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" Style="{StaticResource ChromeButton}"/>
                 </Grid>
@@ -194,8 +188,8 @@ function Test-CookieInput($text) {
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.ColumnSpan="3">
-                    <TextBlock Text="保存国服 Cookie" FontSize="23" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="POESESSID 只用 Windows DPAPI 加密保存到当前用户，不写入日志和诊断文件。" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" FontSize="13"/>
+                    <TextBlock Text="微信扫码登录并自动配置" FontSize="23" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                    <TextBlock Text="微信扫码登录会自动取得并验证 POESESSID；手动方式仅供高级用户。" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}" FontSize="13"/>
                 </StackPanel>
 
                 <Border Grid.Row="1" Grid.Column="0" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
@@ -207,20 +201,20 @@ function Test-CookieInput($text) {
                         </Grid.RowDefinitions>
                         <TextBlock Text="获取步骤" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold"/>
                         <StackPanel Grid.Row="1" Margin="0,18,0,0">
-                            <TextBlock Text="1. 打开国服市集并登录" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                            <TextBlock Text="2. F12 -> Application/应用 -> Cookies" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                            <TextBlock Text="3. 选择 https://poe.game.qq.com" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                            <TextBlock Text="4. 复制 POESESSID 的 Value" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                            <TextBlock Text="1. 点击微信扫码登录并自动配置" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                            <TextBlock Text="2. 使用微信完成扫码登录" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="3. 登录助手自动取得并验证国服 Cookie" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="4. 成功后自动加密保存，无需浏览器开发者工具" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
                         </StackPanel>
                         <StackPanel Grid.Row="2">
-                            <Button x:Name="OpenButton" Content="打开登录页" Style="{StaticResource PrimaryButton}" Margin="0,0,0,10"/>
-                            <Button x:Name="CopyHelpButton" Content="复制步骤" Style="{StaticResource BaseButton}" Margin="0,0,0,10"/>
+                            <Button x:Name="OpenButton" Content="微信扫码登录并自动配置" Style="{StaticResource PrimaryButton}" Margin="0,0,0,10"/>
+                            <Button x:Name="CopyHelpButton" Content="高级方式：手动粘贴 Cookie" Style="{StaticResource BaseButton}" Margin="0,0,0,10"/>
                             <Button x:Name="PasteButton" Content="从剪贴板识别" Style="{StaticResource BaseButton}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1" Grid.Column="2" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
+                <Border x:Name="AdvancedPanel" Visibility="Collapsed" Grid.Row="1" Grid.Column="2" CornerRadius="16" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" Padding="18">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -229,7 +223,7 @@ function Test-CookieInput($text) {
                         </Grid.RowDefinitions>
                         <DockPanel>
                             <Button x:Name="ClearButton" DockPanel.Dock="Right" Content="清空" Width="74" Height="32" Style="{StaticResource BaseButton}"/>
-                            <TextBlock Text="粘贴 POESESSID 值或完整 Cookie 请求头" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Text="高级方式：粘贴 POESESSID 值或完整 Cookie 请求头" Foreground="{StaticResource TextBrush}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
                         </DockPanel>
                         <TextBox x:Name="CookieBox" Grid.Row="1" Margin="0,14,0,12" AcceptsReturn="True" TextWrapping="Wrap" Style="{StaticResource TextInput}"/>
                         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom">
@@ -272,6 +266,7 @@ $startButton = Find-Control 'StartButton'
 $cookieBox = Find-Control 'CookieBox'
 $statusText = Find-Control 'StatusText'
 $statusShell = Find-Control 'StatusShell'
+$advancedPanel = Find-Control 'AdvancedPanel'
 
 $iconPath = Join-Path $rootPath 'assets\app.ico'
 if (Test-Path -LiteralPath $iconPath) {
@@ -308,13 +303,66 @@ function Update-Ui {
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 }
 
+function Stop-ProcessTree {
+    param([System.Diagnostics.Process] $Process)
+    if ($null -eq $Process -or $Process.HasExited) { return }
+    try { & taskkill.exe /PID $Process.Id /T /F *> $null } catch { try { $Process.Kill() } catch {} }
+}
+# 启动主程序并限制等待时间；超时会终止进程树且不回显 Cookie。
+function Invoke-BoundedProcess {
+    param(
+        [string] $FilePath,
+        [string[]] $Arguments,
+        [int] $TimeoutSeconds = 30
+    )
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $rootPath -PassThru -WindowStyle Hidden
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Stop-ProcessTree $process
+            return [pscustomobject]@{ ExitCode = -1; TimedOut = $true }
+        }
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; TimedOut = $false }
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; TimedOut = $false }
+    }
+}
+function Invoke-MainValidation {
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { return $false }
+    $validation = Invoke-BoundedProcess $exe @('--validate-cookie') 30
+    return (-not $validation.TimedOut) -and $validation.ExitCode -eq 0
+}
+
+function Invoke-WechatLogin {
+    <# 启动固定发布目录中的微信登录助手，等待有界且不读取或回显 Cookie。 #>
+    if (-not (Test-Path -LiteralPath $loginHelper)) { return 'missing' }
+    if (-not (Test-Path -LiteralPath $bridgeExe)) { return 'bridge-missing' }
+    $hadValidCookie = Invoke-MainValidation
+    $process = $null
+    try {
+        $process = Start-Process -FilePath $loginHelper -WorkingDirectory $rootPath -PassThru
+        $deadline = [DateTime]::UtcNow.AddSeconds($loginTimeoutSeconds)
+        while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+            Update-Ui
+            Start-Sleep -Milliseconds 200
+        }
+        if (-not $process.HasExited) { Stop-ProcessTree $process; return 'timeout' }
+        if ($process.ExitCode -eq 2) { return 'cancelled' }
+        if ($process.ExitCode -eq 6) { return 'runtime-missing' }
+        if ($process.ExitCode -ne 0) { return 'failed' }
+    } catch { return 'failed' }
+    if (Invoke-MainValidation) {
+        if ($hadValidCookie) { return 'existing' }
+        return 'success'
+    }
+    return 'validation-failed'
+}
 function Save-And-ValidateCookie {
     $exeAvailable = $false
     if ($exe) {
         $exeAvailable = Test-Path -LiteralPath $exe
     }
     if (-not $exeAvailable) {
-        Set-Status -Text '找不到 QingPricePOE2.exe，请确认从完整发布包中运行。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe，请确认从完整发布包中运行。' -Kind 'error'
         return
     }
 
@@ -331,7 +379,11 @@ function Save-And-ValidateCookie {
         [System.IO.File]::WriteAllText($tmp, $cookieText, [System.Text.UTF8Encoding]::new($false))
         Set-Status -Text '正在加密保存 Cookie...'
         Update-Ui
-        $process = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
+        $process = Invoke-BoundedProcess $exe @('--set-cookie-file', $tmp) 30
+        if ($process.TimedOut) {
+            Set-Status -Text '保存 Cookie 超时，主程序已终止。' -Kind 'error'
+            return
+        }
         if ($process.ExitCode -ne 0) {
             Set-Status -Text "保存失败，退出码: $($process.ExitCode)" -Kind 'error'
             return
@@ -339,12 +391,16 @@ function Save-And-ValidateCookie {
 
         Set-Status -Text '已保存，正在请求国服 trade2 验证...'
         Update-Ui
-        $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
+        $validation = Invoke-BoundedProcess $exe @('--validate-cookie') 30
     } finally {
         if ($tmp -and (Test-Path -LiteralPath $tmp)) {
             Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         }
         $cookieText = $null
+    }
+    if ($validation.TimedOut) {
+        Set-Status -Text '国服验证超时，主程序已终止。' -Kind 'error'
+        return
     }
     if ($validation.ExitCode -ne 0) {
         Set-Status -Text '已保存，但验证失败。请重新登录国服市集并复制新的 POESESSID。' -Kind 'error'
@@ -368,19 +424,36 @@ $closeButton.add_Click($closeHandler)
 $closeActionButton.add_Click($closeHandler)
 
 $openButton.add_Click({
-    Start-Process $tradeHome
-    Set-Status -Text '登录完成后复制 POESESSID 的 Value，再回到这里点击“从剪贴板识别”。'
+    if (-not (Test-Path -LiteralPath $loginHelper)) {
+        Set-Status -Text '找不到 POE2PriceLogin.exe，请确认发布包完整。' -Kind 'error'
+        return
+    }
+    Set-Status -Text '正在打开微信登录助手，请扫码完成登录……'
+    Update-Ui
+    $result = Invoke-WechatLogin
+    switch ($result) {
+        'success' { $startButton.IsEnabled = $true; Set-Status -Text '登录验证成功，POESESSID 已加密保存。' -Kind 'ok' }
+        'existing' { $startButton.IsEnabled = $true; Set-Status -Text '登录助手已关闭，现有 Cookie 仍验证有效。' -Kind 'ok' }
+        'missing' { Set-Status -Text '找不到 POE2PriceLogin.exe，请重新解压完整发布包。' -Kind 'error' }
+        'bridge-missing' { Set-Status -Text '找不到主程序，无法完成登录配置。' -Kind 'error' }
+        'timeout' { Set-Status -Text '登录超时，已安全终止登录助手；请重试。' -Kind 'error' }
+        'cancelled' { Set-Status -Text '登录已取消，未覆盖现有 Cookie。' }
+        'runtime-missing' { Set-Status -Text '未检测到 WebView2 Runtime，请安装微软官方运行环境后重试。' -Kind 'error' }
+        'validation-failed' { Set-Status -Text '登录完成但国服验证失败，请重试。' -Kind 'error' }
+        default { Set-Status -Text '登录助手启动或退出异常；未保存明文 Cookie。' -Kind 'error' }
+    }
 })
 
 $copyHelpButton.add_Click({
-    [System.Windows.Clipboard]::SetText($cookieHelp)
-    Set-Status -Text '已复制 Cookie 获取步骤。'
+    if ($advancedPanel) { $advancedPanel.Visibility = [System.Windows.Visibility]::Visible }
+    Set-Status -Text '高级方式已展开；请手动粘贴 POESESSID 或完整 Cookie 请求头。'
 })
 
 $pasteButton.add_Click({
+    if ($advancedPanel) { $advancedPanel.Visibility = [System.Windows.Visibility]::Visible }
     $hasClipboardText = [System.Windows.Clipboard]::ContainsText()
     if (-not $hasClipboardText) {
-        Set-Status -Text '剪贴板没有文本。' -Kind 'error'
+        Set-Status -Text '剪贴板没有文本，请手动粘贴。' -Kind 'error'
         return
     }
     $clip = [System.Windows.Clipboard]::GetText()
@@ -390,9 +463,8 @@ $pasteButton.add_Click({
         Set-Status -Text '已识别到可能的 POESESSID，可以保存并验证。' -Kind 'ok'
         return
     }
-    Set-Status -Text '已粘贴，但没有明显识别到 POESESSID。请确认复制的是 Value 或完整 Cookie。' -Kind 'error'
+    Set-Status -Text '已粘贴，但没有明显识别到 POESESSID。' -Kind 'error'
 })
-
 $clearButton.add_Click({
     $cookieBox.Clear()
     $startButton.IsEnabled = $false
@@ -407,12 +479,16 @@ $validateButton.add_Click({
         $exeAvailable = Test-Path -LiteralPath $exe
     }
     if (-not $exeAvailable) {
-        Set-Status -Text '找不到 QingPricePOE2.exe。' -Kind 'error'
+        Set-Status -Text '找不到 POE2PriceHelper.exe。' -Kind 'error'
         return
     }
     Set-Status -Text '正在验证现有 Cookie...'
     Update-Ui
-    $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
+    $validation = Invoke-BoundedProcess $exe @('--validate-cookie') 30
+    if ($validation.TimedOut) {
+        Set-Status -Text '验证现有 Cookie 超时，主程序已终止。' -Kind 'error'
+        return
+    }
     if ($validation.ExitCode -eq 0) {
         $startButton.IsEnabled = $true
         Set-Status -Text '现有 Cookie 验证通过。' -Kind 'ok'

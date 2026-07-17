@@ -10,13 +10,15 @@ Add-Type -AssemblyName WindowsBase
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
-    (Join-Path $rootPath 'QingPricePOE2.exe'),
+    (Join-Path $rootPath 'POE2PriceHelper.exe'),
     (Join-Path $rootPath 'poe2_cn_price_bridge.exe'),
     (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe')
 )
 $exe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$bridgeExe = Join-Path $rootPath 'POE2PriceHelper.exe'
+$loginHelper = Join-Path $rootPath 'POE2PriceLogin.exe'
 $settingsScript = Join-Path $rootPath 'settings_gui.ps1'
-$tradeHome = 'https://poe.game.qq.com/trade2'
+$loginTimeoutSeconds = 180
 
 function Test-CookieInput($text) {
     if ([string]::IsNullOrWhiteSpace($text)) {
@@ -34,7 +36,7 @@ function Test-CookieInput($text) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="清价 POE2 - 首次使用向导"
+        Title="流放2查价助手 - 首次使用向导"
         Width="880" Height="600"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -185,10 +187,10 @@ function Test-CookieInput($text) {
                     Background="#0B111A">
                 <Grid>
                     <StackPanel Orientation="Horizontal" Margin="22,0,0,0" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="9" Background="#0F766E" BorderBrush="#2DD4BF" BorderThickness="1">
-                            <TextBlock Text="清" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#ECFEFF" FontSize="15" FontWeight="Bold"/>
+                        <Border Width="28" Height="28" CornerRadius="9" Background="#5B3710" BorderBrush="#C78A2B" BorderThickness="1">
+                            <TextBlock Text="价" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#FFF4D6" FontSize="15" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="清价 POE2"
+                        <TextBlock Text="流放2查价助手"
                                    Margin="10,0,0,0"
                                    VerticalAlignment="Center"
                                    FontSize="13"
@@ -248,19 +250,19 @@ function Test-CookieInput($text) {
                             <Border x:Name="Step1Shell" CornerRadius="12" Padding="12" Margin="0,0,0,10" Background="#151F2A" BorderBrush="#344457" BorderThickness="1">
                                 <DockPanel>
                                     <TextBlock x:Name="Step1Mark" Text="1" Width="24" Foreground="{StaticResource GoldBrush}" FontWeight="Bold"/>
-                                    <TextBlock x:Name="Step1Text" Text="打开国服市集并登录" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="Step1Text" Text="微信扫码登录并自动配置" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold"/>
                                 </DockPanel>
                             </Border>
                             <Border x:Name="Step2Shell" CornerRadius="12" Padding="12" Margin="0,0,0,10" Background="#101821" BorderBrush="#263445" BorderThickness="1">
                                 <DockPanel>
                                     <TextBlock x:Name="Step2Mark" Text="2" Width="24" Foreground="{StaticResource MutedBrush}" FontWeight="Bold"/>
-                                    <TextBlock x:Name="Step2Text" Text="粘贴 POESESSID 或 Cookie" Foreground="{StaticResource MutedBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="Step2Text" Text="自动取得 POESESSID" Foreground="{StaticResource MutedBrush}" FontWeight="SemiBold"/>
                                 </DockPanel>
                             </Border>
                             <Border x:Name="Step3Shell" CornerRadius="12" Padding="12" Margin="0,0,0,10" Background="#101821" BorderBrush="#263445" BorderThickness="1">
                                 <DockPanel>
                                     <TextBlock x:Name="Step3Mark" Text="3" Width="24" Foreground="{StaticResource MutedBrush}" FontWeight="Bold"/>
-                                    <TextBlock x:Name="Step3Text" Text="保存并验证 Cookie" Foreground="{StaticResource MutedBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="Step3Text" Text="国服接口验证" Foreground="{StaticResource MutedBrush}" FontWeight="SemiBold"/>
                                 </DockPanel>
                             </Border>
                             <Border x:Name="Step4Shell" CornerRadius="12" Padding="12" Background="#101821" BorderBrush="#263445" BorderThickness="1">
@@ -271,13 +273,13 @@ function Test-CookieInput($text) {
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,18,0,0">
-                            <Button x:Name="OpenButton" Content="打开登录页" Width="132" Style="{StaticResource PrimaryButton}"/>
-                            <Button x:Name="PasteButton" Content="从剪贴板粘贴" Width="132" Margin="12,0,0,0" Style="{StaticResource BaseButton}"/>
+                            <Button x:Name="OpenButton" Content="微信扫码登录并自动配置" Width="132" Style="{StaticResource PrimaryButton}"/>
+                            <Button x:Name="PasteButton" Content="高级方式：手动粘贴 Cookie" Width="132" Margin="12,0,0,0" Style="{StaticResource BaseButton}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1"
+                <Border x:Name="AdvancedPanel" Visibility="Collapsed" Grid.Row="1"
                         Grid.Column="2"
                         CornerRadius="16"
                         Background="{StaticResource PanelBrush}"
@@ -302,7 +304,7 @@ function Test-CookieInput($text) {
                                  TextWrapping="Wrap"
                                  Style="{StaticResource TextInput}"/>
                         <TextBlock Grid.Row="2"
-                                   Text="浏览器登录后按 F12，进入 Application/应用，打开 Cookies，选择 https://poe.game.qq.com，复制 POESESSID 的 Value。也可以粘贴完整 Cookie 请求头。"
+                                   Text="默认使用已验证的微信扫码登录。手动粘贴 POESESSID 仅作为高级方式。"
                                    TextWrapping="Wrap"
                                    LineHeight="20"
                                    Foreground="{StaticResource MutedBrush}"
@@ -333,7 +335,7 @@ function Test-CookieInput($text) {
                                 DockPanel.Dock="Right"
                                 Style="{StaticResource BaseButton}"/>
                         <TextBlock x:Name="StatusText"
-                                   Text="准备就绪。先打开国服市集登录，再复制 POESESSID。"
+                                   Text="准备就绪。点击“微信扫码登录并自动配置”开始。"
                                    VerticalAlignment="Center"
                                    Foreground="{StaticResource GoldBrush}"
                                    FontSize="13"/>
@@ -363,6 +365,7 @@ $startButton = Find-Control 'StartButton'
 $cookieBox = Find-Control 'CookieBox'
 $statusText = Find-Control 'StatusText'
 $statusShell = Find-Control 'StatusShell'
+$advancedPanel = Find-Control 'AdvancedPanel'
 
 $iconPath = Join-Path $rootPath 'assets\app.ico'
 if (Test-Path -LiteralPath $iconPath) {
@@ -435,6 +438,63 @@ function Update-Ui {
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 }
 
+function Stop-ProcessTree {
+    param([System.Diagnostics.Process] $Process)
+    if ($null -eq $Process -or $Process.HasExited) { return }
+    try {
+        & taskkill.exe /PID $Process.Id /T /F *> $null
+    } catch {
+        try { $Process.Kill() } catch {}
+    }
+}
+# 启动主程序并限制等待时间；超时会终止进程树且不回显 Cookie。
+function Invoke-BoundedProcess {
+    param(
+        [string] $FilePath,
+        [string[]] $Arguments,
+        [int] $TimeoutSeconds = 30
+    )
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $rootPath -PassThru -WindowStyle Hidden
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Stop-ProcessTree $process
+            return [pscustomobject]@{ ExitCode = -1; TimedOut = $true }
+        }
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; TimedOut = $false }
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; TimedOut = $false }
+    }
+}
+function Invoke-MainValidation {
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { return $false }
+    $validation = Invoke-BoundedProcess $exe @('--validate-cookie') 30
+    return (-not $validation.TimedOut) -and $validation.ExitCode -eq 0
+}
+
+function Invoke-WechatLogin {
+    <# 启动独立微信登录助手，使用固定发布目录并限制等待时长，不读取或回显 Cookie。 #>
+    if (-not (Test-Path -LiteralPath $loginHelper)) { return 'missing' }
+    if (-not (Test-Path -LiteralPath $bridgeExe)) { return 'bridge-missing' }
+    $hadValidCookie = Invoke-MainValidation
+    $process = $null
+    try {
+        $process = Start-Process -FilePath $loginHelper -WorkingDirectory $rootPath -PassThru
+        $deadline = [DateTime]::UtcNow.AddSeconds($loginTimeoutSeconds)
+        while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+            Update-Ui
+            Start-Sleep -Milliseconds 200
+        }
+        if (-not $process.HasExited) { Stop-ProcessTree $process; return 'timeout' }
+        if ($process.ExitCode -eq 2) { return 'cancelled' }
+        if ($process.ExitCode -eq 6) { return 'runtime-missing' }
+        if ($process.ExitCode -ne 0) { return 'failed' }
+    } catch { return 'failed' }
+    if (Invoke-MainValidation) {
+        if ($hadValidCookie) { return 'existing' }
+        return 'success'
+    }
+    return 'validation-failed'
+}
 $titleBar.Add_MouseLeftButtonDown({
     try {
         $window.DragMove()
@@ -448,34 +508,78 @@ $closeButton.add_Click($closeHandler)
 $closeActionButton.add_Click($closeHandler)
 
 $openHandler = {
-    Start-Process $tradeHome
-    Set-StepState 1 'done'
-    Set-StepState 2 'active'
-    Set-Status -Text '登录完成后复制 POESESSID 的 Value，再回到这里粘贴。'
+    if (-not (Test-Path -LiteralPath $loginHelper)) {
+        Set-StepState 1 'error'
+        Set-Status -Text '找不到 POE2PriceLogin.exe，请确认发布包完整。' -Kind 'error'
+        return
+    }
+    Set-StepState 1 'active'
+    Set-Status -Text '正在打开微信登录助手，请扫码完成登录……'
+    Update-Ui
+    $result = Invoke-WechatLogin
+    switch ($result) {
+        'success' {
+            Set-StepState 1 'done'; Set-StepState 2 'done'; Set-StepState 3 'done'; Set-StepState 4 'active'
+            $startButton.IsEnabled = $true
+            Set-Status -Text '登录验证成功，可以启动工具。' -Kind 'ok'
+        }
+        'existing' {
+            Set-StepState 1 'done'; Set-StepState 2 'done'; Set-StepState 3 'done'; Set-StepState 4 'active'
+            $startButton.IsEnabled = $true
+            Set-Status -Text '登录助手已关闭，现有 Cookie 仍验证有效。' -Kind 'ok'
+        }
+        'missing' {
+            Set-StepState 1 'error'
+            Set-Status -Text '找不到 POE2PriceLogin.exe，请重新解压完整发布包。' -Kind 'error'
+        }
+        'bridge-missing' {
+            Set-StepState 1 'error'
+            Set-Status -Text '找不到主程序，无法完成登录配置。' -Kind 'error'
+        }
+        'timeout' {
+            Set-StepState 1 'error'
+            Set-Status -Text '登录超时，已安全终止登录助手；请重试。' -Kind 'error'
+        }
+        'cancelled' {
+            Set-StepState 1 'active'
+            Set-Status -Text '登录已取消，未覆盖现有 Cookie。'
+        }
+        'runtime-missing' {
+            Set-StepState 1 'error'
+            Set-Status -Text '未检测到 WebView2 Runtime，请安装微软官方运行环境后重试。' -Kind 'error'
+        }
+        'validation-failed' {
+            Set-StepState 3 'error'
+            Set-Status -Text '登录完成但国服验证失败，请重试。' -Kind 'error'
+        }
+        default {
+            Set-StepState 1 'error'
+            Set-Status -Text '登录助手启动或退出异常；未保存明文 Cookie。' -Kind 'error'
+        }
+    }
 }
 $openButton.add_Click($openHandler)
 
 $pasteHandler = {
+    if ($advancedPanel) {
+        $advancedPanel.Visibility = [System.Windows.Visibility]::Visible
+    }
     $hasClipboardText = [System.Windows.Clipboard]::ContainsText()
     if (-not $hasClipboardText) {
-        Set-Status -Text '剪贴板没有文本。' -Kind 'error'
+        Set-Status -Text '高级方式已展开；剪贴板没有文本，请手动粘贴。'
         return
     }
-
     $clip = [System.Windows.Clipboard]::GetText()
     $cookieBox.Text = $clip
     if ((Test-CookieInput $clip)) {
-        Set-StepState 2 'done'
-        Set-StepState 3 'active'
-        Set-Status -Text '已识别到可能的 POESESSID。点击“保存并验证”。' -Kind 'ok'
+        Set-StepState 2 'done'; Set-StepState 3 'active'
+        Set-Status -Text '已识别到可能的 POESESSID，点击“保存并验证”。' -Kind 'ok'
         return
     }
-
     Set-StepState 2 'error'
-    Set-Status -Text '已粘贴，但没有明显识别到 POESESSID。请确认复制的是 Value 或完整 Cookie。' -Kind 'error'
+    Set-Status -Text '已粘贴，但没有明显识别到 POESESSID。' -Kind 'error'
 }
 $pasteButton.add_Click($pasteHandler)
-
 $saveHandler = {
     $exeAvailable = $false
     if ($exe) {
@@ -501,7 +605,11 @@ $saveHandler = {
         [System.IO.File]::WriteAllText($tmp, $cookieText, [System.Text.UTF8Encoding]::new($false))
         Set-Status -Text '正在加密保存 Cookie...'
         Update-Ui
-        $saveProcess = Start-Process -FilePath $exe -ArgumentList @('--set-cookie-file', $tmp) -Wait -PassThru
+        $saveProcess = Invoke-BoundedProcess $exe @('--set-cookie-file', $tmp) 30
+        if ($saveProcess.TimedOut) {
+            Set-Status -Text '保存 Cookie 超时，主程序已终止。' -Kind 'error'
+            return
+        }
         if ($saveProcess.ExitCode -ne 0) {
             Set-StepState 3 'error'
             Set-Status -Text "保存失败，退出码: $($saveProcess.ExitCode)" -Kind 'error'
@@ -510,12 +618,16 @@ $saveHandler = {
 
         Set-Status -Text '已保存，正在请求国服 trade2 验证...'
         Update-Ui
-        $validation = Start-Process -FilePath $exe -ArgumentList @('--validate-cookie') -Wait -PassThru
+        $validation = Invoke-BoundedProcess $exe @('--validate-cookie') 30
     } finally {
         if ($tmp -and (Test-Path -LiteralPath $tmp)) {
             Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         }
         $cookieText = $null
+    }
+    if ($validation.TimedOut) {
+        Set-Status -Text '国服验证超时，主程序已终止。' -Kind 'error'
+        return
     }
     if ($validation.ExitCode -ne 0) {
         Set-StepState 3 'error'

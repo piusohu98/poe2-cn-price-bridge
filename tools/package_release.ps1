@@ -15,6 +15,8 @@ $webView2Version = '1.0.4078.44'
 $webView2LicenseRoot = Join-Path $rootPath "third_party\Microsoft.Web.WebView2\$webView2Version"
 $webView2LicenseHash = '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
 $webView2NoticeHash = '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
+# WebView2 Runtime 由用户单独安装；只保留微软官方入口，不在包内下载或捆绑 Runtime。
+$webView2RuntimeUrl = 'https://developer.microsoft.com/microsoft-edge/webview2/'
 
 & (Join-Path $PSScriptRoot 'make_icon.ps1') -Root $rootPath
 
@@ -36,11 +38,11 @@ if (-not $SkipBuild) {
 
     & (Join-Path $PSScriptRoot 'build_login.ps1') -Root $rootPath -Configuration Release
     if ($LASTEXITCODE -ne 0) {
-        throw "QingPriceLogin locked build failed with exit code $LASTEXITCODE"
+        throw "POE2PriceLogin locked build failed with exit code $LASTEXITCODE"
     }
 }
 $distRoot = Join-Path $rootPath 'dist'
-$packageName = "QingPricePOE2-v$version-windows-x64"
+$packageName = "POE2PriceHelper-v$version-windows-x64"
 $packageDir = Join-Path $distRoot $packageName
 $zipPath = Join-Path $distRoot "$packageName.zip"
 $checksumPath = Join-Path $distRoot "$packageName.sha256.txt"
@@ -52,10 +54,10 @@ New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'assets') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'licenses') | Out-Null
 
-Copy-Item -LiteralPath (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe') -Destination (Join-Path $packageDir 'QingPricePOE2.exe') -Force
+Copy-Item -LiteralPath (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe') -Destination (Join-Path $packageDir 'POE2PriceHelper.exe') -Force
 $loginFiles = @(
-    'QingPriceLogin.exe',
-    'QingPriceLogin.exe.config',
+    'POE2PriceLogin.exe',
+    'POE2PriceLogin.exe.config',
     'Microsoft.Web.WebView2.Core.dll',
     'Microsoft.Web.WebView2.Wpf.dll',
     'WebView2Loader.dll'
@@ -88,16 +90,17 @@ Copy-Item -LiteralPath (Join-Path $rootPath 'assets\app_256.png') -Destination (
 
 $buildTime = [DateTimeOffset]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
 Set-Content -LiteralPath (Join-Path $packageDir 'VERSION.txt') -Encoding UTF8 -Value @"
-清价 POE2 国服查价
+流放2查价助手 国服查价
 version: $version
 build_time: $buildTime
 
 start_here: StartHere.bat
 start_here_zh: 开始使用.bat
 control_center: ControlCenter.bat
-start: Start.bat / 启动查价.bat / QingPricePOE2.exe
+start: Start.bat / 启动查价.bat / POE2PriceHelper.exe
 first_run: FirstRun.bat
-login_poc: QingPriceLogin.exe
+login_poc: POE2PriceLogin.exe
+webview2_runtime: $webView2RuntimeUrl
 first_run_zh: 首次向导.bat
 settings: Settings.bat
 settings_zh: 常用设置.bat
@@ -123,7 +126,7 @@ third_party_webview2_notice: licenses\Microsoft.Web.WebView2-NOTICE.txt
 Set-Content -LiteralPath (Join-Path $packageDir 'Start.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0QingPricePOE2.exe"
+start "" "%~dp0POE2PriceHelper.exe"
 '@
 
 Set-Content -LiteralPath (Join-Path $packageDir 'ControlCenter.bat') -Encoding ASCII -Value @'
@@ -153,7 +156,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~d
 Set-Content -LiteralPath (Join-Path $packageDir 'ValidateCookie.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-"%~dp0QingPricePOE2.exe" --validate-cookie
+"%~dp0POE2PriceHelper.exe" --validate-cookie
 if errorlevel 1 (
   echo Cookie validation failed. Please run SetCookie.bat again.
 ) else (
@@ -171,14 +174,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~d
 Set-Content -LiteralPath (Join-Path $packageDir 'ClearCookie.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-"%~dp0QingPricePOE2.exe" --clear-cookie
+"%~dp0POE2PriceHelper.exe" --clear-cookie
 pause
 '@
 
 Set-Content -LiteralPath (Join-Path $packageDir 'Diagnostics.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-"%~dp0QingPricePOE2.exe" --diagnostics "%~dp0diagnostics.txt"
+"%~dp0POE2PriceHelper.exe" --diagnostics "%~dp0diagnostics.txt"
 echo.
 echo Diagnostics exported to "%~dp0diagnostics.txt"
 pause
@@ -194,7 +197,7 @@ pause
 Set-Content -LiteralPath (Join-Path $packageDir 'SelfCheck.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-"%~dp0QingPricePOE2.exe" --self-check "%~dp0selfcheck.txt"
+"%~dp0POE2PriceHelper.exe" --self-check "%~dp0selfcheck.txt"
 echo.
 echo Self-check exported to "%~dp0selfcheck.txt"
 pause
@@ -203,7 +206,7 @@ pause
 Set-Content -LiteralPath (Join-Path $packageDir 'CheckUpdate.bat') -Encoding ASCII -Value @'
 @echo off
 cd /d "%~dp0"
-"%~dp0QingPricePOE2.exe" --check-update "%~dp0update-check.txt"
+"%~dp0POE2PriceHelper.exe" --check-update "%~dp0update-check.txt"
 echo.
 echo Update check exported to "%~dp0update-check.txt"
 pause
@@ -274,14 +277,14 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $shell = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath('Desktop')
-$shortcut = $shell.CreateShortcut((Join-Path $desktop '清价 POE2.lnk'))
-$shortcut.TargetPath = Join-Path $root 'QingPricePOE2.exe'
+$shortcut = $shell.CreateShortcut((Join-Path $desktop '流放2查价助手.lnk'))
+$shortcut.TargetPath = Join-Path $root 'POE2PriceHelper.exe'
 $shortcut.WorkingDirectory = $root
 $shortcut.IconLocation = (Join-Path $root 'assets\app.ico')
 $shortcut.Hotkey = 'F7'
-$shortcut.Description = '清价 POE2 国服查价'
+$shortcut.Description = '流放2查价助手 国服查价'
 $shortcut.Save()
-Write-Host 'Desktop shortcut created: 清价 POE2.lnk'
+Write-Host 'Desktop shortcut created: 流放2查价助手.lnk'
 '@
 
 Set-Content -LiteralPath (Join-Path $packageDir 'InstallShortcut.bat') -Encoding ASCII -Value @'
@@ -293,14 +296,14 @@ pause
 Set-Content -LiteralPath (Join-Path $packageDir 'ResetData.ps1') -Encoding UTF8 -Value @'
 $ErrorActionPreference = 'Stop'
 $appDir = Join-Path $env:APPDATA 'poe2_cn_price_bridge'
-Write-Host 'This will close QingPrice POE2 and remove local config, cookie, history, logs, self-check, diagnostics and crash reports.'
+Write-Host 'This will close POE2 Price Helper and remove local config, cookie, history, logs, self-check, diagnostics and crash reports.'
 Write-Host 'It will NOT delete this program folder.'
 $confirm = Read-Host 'Type RESET to continue'
 if ($confirm -ne 'RESET') {
     Write-Host 'Cancelled.'
     exit 0
 }
-Get-Process QingPricePOE2,poe2_cn_price_bridge -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process POE2PriceHelper,poe2_cn_price_bridge -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path -LiteralPath $appDir) {
     Remove-Item -LiteralPath $appDir -Recurse -Force
     Write-Host "Removed local data: $appDir"
@@ -321,17 +324,17 @@ $ErrorActionPreference = 'Stop'
 $appDir = Join-Path $env:APPDATA 'poe2_cn_price_bridge'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcuts = @(
-    (Join-Path $desktop '清价 POE2.lnk'),
-    (Join-Path $desktop 'POE2-CN-Price.lnk')
+    (Join-Path $desktop '流放2查价助手.lnk'),
+    (Join-Path $desktop 'POE2-Price-Helper.lnk')
 )
-Write-Host 'This will close QingPrice POE2, remove desktop shortcuts and remove local app data.'
+Write-Host 'This will close POE2 Price Helper, remove desktop shortcuts and remove local app data.'
 Write-Host 'After this finishes, you can delete this extracted program folder manually.'
 $confirm = Read-Host 'Type UNINSTALL to continue'
 if ($confirm -ne 'UNINSTALL') {
     Write-Host 'Cancelled.'
     exit 0
 }
-Get-Process QingPricePOE2,poe2_cn_price_bridge -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process POE2PriceHelper,poe2_cn_price_bridge -ErrorAction SilentlyContinue | Stop-Process -Force
 foreach ($shortcut in $shortcuts) {
     if (Test-Path -LiteralPath $shortcut) {
         Remove-Item -LiteralPath $shortcut -Force

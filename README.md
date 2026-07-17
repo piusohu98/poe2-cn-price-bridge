@@ -1,4 +1,4 @@
-# 清价 POE2 国服查价
+# 流放2查价助手 国服查价
 
 一个 Rust 编写的 POE2 国服游戏内查价工具。悬停物品后按 `Ctrl+C`，工具会自动读取游戏复制的物品文本，请求国服官方 `poe.game.qq.com/api/trade2`，并在游戏上方显示价格面板。
 
@@ -19,10 +19,10 @@
 
 ## 下载后怎么用
 
-1. 解压发布包 `QingPricePOE2-v*-windows-x64.zip`。
+1. 解压发布包 `POE2PriceHelper-v*-windows-x64.zip`。
 2. 先运行 `开始使用.bat`，在控制中心里点 `首次使用向导`。
 3. 按向导完成登录、保存 Cookie、验证 Cookie 和启动工具。
-4. 以后可以继续用 `开始使用.bat`，也可以直接运行 `启动查价.bat` 或双击 `QingPricePOE2.exe`。
+4. 以后可以继续用 `开始使用.bat`，也可以直接运行 `启动查价.bat` 或双击 `POE2PriceHelper.exe`。
 5. 进游戏，鼠标悬停物品，按 `Ctrl+C`。
 6. 查看右上角价格面板；关闭面板后工具仍在托盘后台运行。
 
@@ -30,7 +30,7 @@
 
 如果只想单独设置 Cookie，可以运行 `设置Cookie.bat`。窗口会自动识别剪贴板里的 POESESSID，保存后会自动验证 Cookie 是否可用。
 
-如果不知道在哪里复制 Cookie，可以在浏览器打开 `https://poe.game.qq.com/trade2` 后按 `F12`，到 `Application/应用 -> Cookies -> https://poe.game.qq.com`，复制 `POESESSID`。也可以复制完整 `Cookie: ...` 请求头。
+以上手动复制仅是“高级方式”备用流程；普通用户请使用首次向导中的微信扫码登录，无需打开 F12。若确需手动获取，可在浏览器打开 `https://poe.game.qq.com/trade2` 后按 `F12`，到 `Application/应用 -> Cookies -> https://poe.game.qq.com`，复制 `POESESSID`，也可以复制完整 `Cookie: ...` 请求头。
 
 需要手动确认 Cookie 是否仍可用时，运行 `ValidateCookie.bat`，或托盘右键选择 `验证 Cookie`。
 
@@ -130,13 +130,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_release.ps1
 输出文件在：
 
 ```text
-dist\QingPricePOE2-v*-windows-x64.zip
-dist\QingPricePOE2-v*-windows-x64.sha256.txt
+dist\POE2PriceHelper-v*-windows-x64.zip
+dist\POE2PriceHelper-v*-windows-x64.sha256.txt
 ```
 
 ## 第三方组件
 
-独立登录 PoC `QingPriceLogin.exe` 使用固定版本 `Microsoft.Web.WebView2 1.0.4078.44`。NuGet 依赖由 `login/QingPriceLogin/packages.lock.json` 锁定，构建时通过 `tools/build_login.ps1` 从 `Cargo.toml` 注入统一版本号。
+独立登录 PoC `POE2PriceLogin.exe` 使用固定版本 `Microsoft.Web.WebView2 1.0.4078.44`。NuGet 依赖由 `login/QingPriceLogin/packages.lock.json` 锁定，构建时通过 `tools/build_login.ps1` 从 `Cargo.toml` 注入统一版本号。
 
 发布包在 `licenses` 目录中包含对应版本的 Microsoft WebView2 `LICENSE.txt` 和 `NOTICE.txt`。程序不捆绑 WebView2 Runtime；缺失时只引导到微软官方下载页面。
 
@@ -184,3 +184,8 @@ Cookie 使用 Windows DPAPI 加密，只能由当前 Windows 用户解密。开�
 ## 说明
 
 本项目只调用国服官方 trade2 接口，不修改游戏进程，也不读写游戏内存。使用前请自行确认符合游戏和平台规则。
+
+## WebView2 Runtime
+
+登录助手不捆绑 WebView2 Runtime。若首次向导提示 Runtime 缺失，请仅使用微软官方安装入口：
+https://developer.microsoft.com/microsoft-edge/webview2/

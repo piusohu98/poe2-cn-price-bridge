@@ -340,7 +340,7 @@ namespace QingPriceLogin
             }, DateTime.UtcNow);
             Assert(selected != null && selected.Value == secret, "应只选择有效 POESESSID");
 
-            var startInfo = LoginBridge.CreateStartInfo("QingPricePOE2.exe");
+            var startInfo = LoginBridge.CreateStartInfo("POE2PriceHelper.exe");
             Assert(startInfo.Arguments == "--set-cookie-stdin", "桥接命令只能使用 stdin 参数");
             Assert(!startInfo.Arguments.Contains(secret), "Secret 不得出现在命令行");
 

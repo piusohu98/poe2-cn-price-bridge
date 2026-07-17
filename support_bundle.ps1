@@ -7,12 +7,12 @@ $ErrorActionPreference = 'Stop'
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $exeCandidates = @(
-    (Join-Path $rootPath 'QingPricePOE2.exe'),
+    (Join-Path $rootPath 'POE2PriceHelper.exe'),
     (Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe')
 )
 $exe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $exe) {
-    throw '找不到 QingPricePOE2.exe。请先运行 StartHere.bat，或从完整发布包中执行。'
+    throw '找不到 POE2PriceHelper.exe。请先运行 StartHere.bat，或从完整发布包中执行。'
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -23,7 +23,7 @@ try {
     New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
 
     Set-Content -LiteralPath (Join-Path $bundleDir 'README.txt') -Encoding UTF8 -Value @"
-清价 POE2 客户支持包
+流放2查价助手客户支持包
 生成时间: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 
 可发送给维护者的文件:

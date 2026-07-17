@@ -30,7 +30,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\package_release.ps1
 输出：
 
 ```text
-dist\QingPricePOE2-v*-windows-x64.zip
+dist\POE2PriceHelper-v*-windows-x64.zip
 ```
 
 GitHub Release 自动生成：

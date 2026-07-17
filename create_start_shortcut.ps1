@@ -6,7 +6,7 @@
 $ErrorActionPreference = 'Stop'
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $desktop = [Environment]::GetFolderPath('Desktop')
-$shortcut = Join-Path $desktop '清价 POE2.lnk'
+$shortcut = Join-Path $desktop '流放2查价助手.lnk'
 $exe = Join-Path $rootPath 'target\release\poe2_cn_price_bridge.exe'
 $fallbackBat = Join-Path $rootPath 'start_bridge.bat'
 
@@ -19,7 +19,7 @@ if (Test-Path -LiteralPath $exe) {
     $link.TargetPath = $fallbackBat
 }
 $link.WorkingDirectory = $rootPath
-$link.Description = '清价 POE2 国服查价'
+$link.Description = '流放2查价助手 国服查价'
 $link.Hotkey = 'F7'
 $link.Save()
 
