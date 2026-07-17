@@ -227,6 +227,7 @@ impl OverlayInteraction for UiState {
         match copy_text_to_clipboard(&message) {
             Ok(_) => {
                 self.view.status = format!("已复制 whisper 消息: @{}", entry.seller);
+                self.touch_activity();
             }
             Err(err) => self.view.status = format!("复制失败: {err}"),
         }

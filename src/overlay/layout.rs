@@ -1027,4 +1027,35 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn whisper_button_count_per_visible_listing() {
+        // 每个可见挂单只有一个 Whisper 按钮
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let item = crate::make_test_item_with_mods(6);
+        let mut result = crate::TradeResult::new_for_test(item);
+        // 添加足够多的挂单以占满可见行
+        let visible_rows = visible_row_count(&plan.table_body);
+        for i in 0..visible_rows + 2 {
+            result.entries.push(crate::TradeEntry {
+                seller: format!("Seller{}", i),
+                price: format!("{} chaos", i + 1),
+                price_amount: Some((i + 1) as f64),
+                ..Default::default()
+            });
+        }
+        let state = crate::UiState::new_for_test();
+        let specs = state.button_specs_for_result(&plan, &result);
+        let whisper_count = specs
+            .iter()
+            .filter(|s| matches!(s.button, UiButton::Whisper(_)) && s.visible)
+            .count();
+        assert_eq!(whisper_count, visible_rows);
+    }
 }

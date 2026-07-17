@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- 通货中文显示：新增 `currency` 模块，支持 24 种通货的中文名称映射（如 chaos→混沌石、divine→神圣石）。`price_text` 函数改为使用 `currency::format_price_zh` 生成中文价格显示，未知通货自动回退显示原始代码。排序和价值计算继续使用 `price_amount` 数值字段，不受本地化影响。
+
 ### Changed
 
 - 重构查价状态流：取消独立的"查价中"Message 窗口，复制物品后直接显示物品详情窗口。详情窗口立即展示物品名称、基底类型、词缀等信息，表格区域显示"正在请求国服市集…"，查询完成后在同一窗口更新结果。Loading 状态下禁用翻页、排序、私聊等操作，避免连续查询结果串乱。
@@ -9,10 +13,13 @@
 
 ### Fixed
 
+- 修复每行出现两个私聊按钮的问题：删除 render.rs 中表格行的手动绘制（rounded_rect + draw_text），仅保留 layout.rs 的 UiButtonSpec + paint_buttons 路径，确保每行只有一个私聊按钮。
+- 完善复制私聊功能：复制成功后调用 touch_activity() 刷新自动隐藏计时器。
 - 修复 Overlay 在鼠标移动时持续闪烁的问题：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），禁用系统背景擦除（WM_ERASEBKGND 返回 1），添加 WM_MOUSELEAVE 追踪，仅当 hover 按钮变化时才触发重绘。
 
 ### Tests
 
+- 新增 `whisper_button_count_per_visible_listing` 测试，确保每个可见挂单只有一个 Whisper 按钮。
 - 新增 hover 状态转换测试 `hover_transition_does_not_trigger_redundant_repaint`，确保同一按钮不变时不触发重绘、不同按钮变化时触发重绘。
 
 ## 0.4.1

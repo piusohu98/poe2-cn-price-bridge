@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unsafe_op_in_unsafe_fn)]
 
+mod currency;
 mod overlay;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -2825,7 +2826,7 @@ fn price_text(price: Option<&Value>) -> String {
     let Some(price) = price else {
         return "未标价".to_string();
     };
-    let amount = price
+    let amount_str = price
         .get("amount")
         .or_else(|| price.get("value"))
         .map(scalar_text)
@@ -2835,11 +2836,13 @@ fn price_text(price: Option<&Value>) -> String {
         .or_else(|| price.get("type"))
         .map(scalar_text)
         .unwrap_or_default();
-    let text = format!("{amount} {currency}").trim().to_string();
-    if text.is_empty() {
-        "未标价".to_string()
+    if amount_str.is_empty() || currency.is_empty() {
+        return "未标价".to_string();
+    }
+    if let Ok(amount) = amount_str.parse::<f64>() {
+        currency::format_price_zh(amount, &currency)
     } else {
-        text
+        format!("{amount_str} {currency}")
     }
 }
 

@@ -850,31 +850,6 @@ impl OverlayRenderer for UiState {
                 self.fonts.small,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
             );
-
-            // 操作列：私聊按钮
-            let btn_left = col_action_x + 3;
-            let btn_right = col_action_x + col.action - 3;
-            let btn_rect = RECT {
-                left: btn_left,
-                top: top + 2,
-                right: btn_right,
-                bottom: top + row_height - 2,
-            };
-            rounded_rect(
-                hdc,
-                btn_rect,
-                theme::WHISPER_BG,
-                theme::BTN_BORDER_PRIMARY,
-                4,
-            );
-            draw_text(
-                hdc,
-                "私聊",
-                btn_rect,
-                theme::TEXT_WHITE,
-                self.fonts.small,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-            );
         }
     }
 
