@@ -61,9 +61,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
     WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE,
-    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NULL,
-    WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE,
+    WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
@@ -83,7 +83,7 @@ const DEFAULT_STATUS: &str = "securable";
 const DEFAULT_MAX_FETCH_RESULTS: usize = 80;
 const DEFAULT_FETCH_BATCH_SIZE: usize = 10;
 const DEFAULT_PAGE_SIZE: usize = 8;
-const DEFAULT_RESULT_TIMEOUT_SECONDS: u64 = 16;
+const DEFAULT_RESULT_TIMEOUT_SECONDS: u64 = 30;
 const MAX_HISTORY_ENTRIES: usize = 80;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -2122,8 +2122,6 @@ fn build_payload_variants(parsed: &ParsedItem, options: &QueryOptions) -> Vec<Va
         build_trade_payload(parsed, options, DEFAULT_STATUS, true, true, false),
         build_trade_payload(parsed, options, DEFAULT_STATUS, false, true, false),
         build_trade_payload(parsed, options, DEFAULT_STATUS, true, false, false),
-        build_trade_payload(parsed, options, "online", true, true, true),
-        build_trade_payload(parsed, options, "online", true, true, false),
     ];
     let mut seen = HashMap::new();
     let mut variants = Vec::new();
@@ -2180,15 +2178,23 @@ struct StatDef {
 }
 
 static STAT_DEFS: OnceLock<Vec<StatDef>> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+static UI_HWND: OnceLock<isize> = OnceLock::new();
+
+fn get_http_client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .expect("build reqwest client")
+    })
+}
 
 fn load_stat_defs() -> Result<&'static Vec<StatDef>, TradeError> {
     if let Some(defs) = STAT_DEFS.get() {
         return Ok(defs);
     }
-    let client = Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|err| TradeError::Request(format!("创建 HTTP 客户端失败: {err}")))?;
+    let client = get_http_client();
     let stats_url = trade_stats_url();
     if !is_allowed_trade_endpoint(&stats_url) {
         return Err(TradeError::Request(
@@ -2492,10 +2498,10 @@ fn direct_trade_search(
     options: QueryOptions,
 ) -> Result<TradeResult, TradeError> {
     let settings = load_config().settings.normalized();
-    let client = Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|err| TradeError::Request(format!("创建 HTTP 客户端失败: {err}")))?;
+    let client = get_http_client();
+    let cookie = load_cookie()
+        .map_err(|err| TradeError::Auth(format!("读取 POESESSID 失败: {err}")))?
+        .ok_or_else(|| TradeError::Auth(format!("没有保存 POESESSID。{}", support_hint())))?;
     if options.use_mods {
         resolve_item_mods(&mut parsed)?;
     }
@@ -2504,11 +2510,12 @@ fn direct_trade_search(
 
     for league in settings.leagues() {
         for (index, payload) in payloads.iter().enumerate() {
-            let search_data = match request_json(
-                &client,
+            let search_data = match request_json_with_cookie(
+                client,
                 &trade_search_url(&league),
                 Method::POST,
                 Some(payload),
+                &cookie,
             ) {
                 Ok(data) => data,
                 Err(err @ TradeError::Auth(_)) => return Err(err),
@@ -2562,7 +2569,7 @@ fn direct_trade_search(
             if !result_ids.is_empty() {
                 let mut fetch_failures = Vec::new();
                 for chunk in result_ids.chunks(settings.fetch_batch_size) {
-                    match request_json(&client, &fetch_url(chunk, &query_id), Method::GET, None) {
+                    match request_json_with_cookie(client, &fetch_url(chunk, &query_id), Method::GET, None, &cookie) {
                         Ok(fetch_data) => {
                             if !fetch_data.get("error").unwrap_or(&Value::Null).is_null() {
                                 let message = fetch_data
@@ -3570,6 +3577,7 @@ impl UiState {
     }
 
     unsafe fn handle_button_click(&mut self, x: i32, y: i32) -> bool {
+        self.touch_activity();
         let mut rect = RECT::default();
         GetClientRect(self.hwnd, &mut rect);
         for spec in self.button_specs(rect) {
@@ -3605,8 +3613,16 @@ impl UiState {
         false
     }
 
+    /// 用户交互时刷新自动隐藏倒计时
+    unsafe fn touch_activity(&mut self) {
+        if !self.pinned {
+            self.hide_deadline = Some(Instant::now() + Duration::from_secs(15));
+        }
+    }
+
     /// 键盘快捷键处理，返回 true 表示已处理
     unsafe fn handle_key_down(&mut self, vk_code: u32) -> bool {
+        self.touch_activity();
         let has_result = self.current_result().is_some();
         match vk_code {
             0x25 => { if has_result { self.page_prev(); } else { return false; } } // ← 上一页
@@ -4290,6 +4306,7 @@ unsafe extern "system" fn wnd_proc(
             let state_ptr = (*createstruct).lpCreateParams as *mut UiState;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_ptr as isize);
             (*state_ptr).hwnd = hwnd;
+            let _ = UI_HWND.set(hwnd as isize);
             1
         }
         WM_CREATE => {
@@ -4339,6 +4356,12 @@ unsafe extern "system" fn wnd_proc(
                 return 0;
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_MOUSEMOVE => {
+            if let Some(state) = state_from_hwnd(hwnd) {
+                state.touch_activity();
+            }
+            0
         }
         WM_LBUTTONDOWN => {
             let x = (lparam as i16) as i32;
@@ -4586,6 +4609,10 @@ fn start_price_query_from_parsed(
         accent: rgb(56, 189, 248),
         timeout: Duration::from_secs(8),
     });
+
+    if let Some(hwnd) = UI_HWND.get() {
+        unsafe { PostMessageW(*hwnd as HWND, WM_TIMER, TIMER_ID as WPARAM, 0); }
+    }
 
     thread::spawn(
         move || match direct_trade_search(parsed.clone(), options.clone()) {
@@ -4954,6 +4981,12 @@ fn run_ui(
         });
 
         ShowWindow(hwnd, SW_SHOW);
+        // 后台预加载属性库，减少首次按属性查价的延迟
+        thread::spawn(|| {
+            if let Err(err) = load_stat_defs() {
+                log(format!("预加载属性库失败: {err}"));
+            }
+        });
         if load_config().cookie_dpapi.is_none() {
             log("未检测到 Cookie，自动打开首次使用向导。");
             if let Err(err) = launch_first_run_wizard() {
