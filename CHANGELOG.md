@@ -16,6 +16,9 @@
 - 列布局计算统一为 `compute_column_layout()` 函数，渲染和按钮热区共用同一套列宽。
 - 新增布局不重叠测试 `layout_plan_rects_dont_overlap` 和 Y 坐标顺序测试 `layout_plan_rects_sequential_y`。
 - 修复挂单排序、分页和私聊按钮之间的索引错位：引入 `visible_listing_indices` 统一函数，排序时保留原始索引，确保渲染表格和 Whisper 按钮引用同一原始条目；私聊复制优先使用服务端返回的 `whisper_text`。
+- 在线状态解析：支持 `account.online` 为对象（非空对象视为在线）和 `account.status` 字符串格式，修复部分 API 响应下在线状态无法正确识别的问题。
+- 上架时间显示：从日期格式改为相对时间（如"2分钟""3小时""5天"），使用 `relative_time_ago` 函数替代 `friendly_indexed_time`。
+- 表头排序：新增双向排序切换（点击同一表头在升序/降序间切换），等级和上架时间支持双向排序，排序箭头与当前排序方向一致。
 
 ## 0.4.0
 

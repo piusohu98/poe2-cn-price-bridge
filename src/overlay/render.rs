@@ -15,7 +15,7 @@ use crate::overlay::layout::{
 use crate::overlay::model::{UiButton, ViewKind};
 use crate::overlay::theme;
 use crate::{
-    ItemValueTier, SortOrder, TradeResult, UiState, friendly_indexed_time, rgb,
+    ItemValueTier, SortOrder, TradeResult, UiState, relative_time_ago, rgb,
     visible_listing_indices, wide,
 };
 
@@ -624,12 +624,20 @@ impl OverlayRenderer for UiState {
         let col_action_x = col_seller_x + col.seller;
 
         // 排序方向箭头
-        let (price_arrow, time_arrow, level_arrow) = match self.current_sort {
-            SortOrder::PriceAsc => ("△", "", ""),
-            SortOrder::PriceDesc => ("▽", "", ""),
-            SortOrder::IndexedTimeAsc => ("", "△", ""),
-            SortOrder::ItemLevelDesc => ("", "", "▽"),
-            SortOrder::OnlineFirst => ("", "", ""),
+        let price_arrow = match self.current_sort {
+            SortOrder::PriceAsc => " ▲",
+            SortOrder::PriceDesc => " ▼",
+            _ => "",
+        };
+        let level_arrow = match self.current_sort {
+            SortOrder::ItemLevelAsc => " ▲",
+            SortOrder::ItemLevelDesc => " ▼",
+            _ => "",
+        };
+        let time_arrow = match self.current_sort {
+            SortOrder::IndexedTimeAsc => " ▲",
+            SortOrder::IndexedTimeDesc => " ▼",
+            _ => "",
         };
 
         // 表头
@@ -855,7 +863,7 @@ impl OverlayRenderer for UiState {
             let time_text = entry
                 .indexed_time
                 .as_deref()
-                .map(friendly_indexed_time)
+                .map(relative_time_ago)
                 .unwrap_or_else(|| "-".to_string());
             draw_text(
                 hdc,

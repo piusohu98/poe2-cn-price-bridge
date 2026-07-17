@@ -33,7 +33,7 @@ pub trait OverlayInteraction {
     unsafe fn page_prev(&mut self);
     unsafe fn page_next(&mut self);
     unsafe fn rerun_current_query(&mut self);
-    unsafe fn handle_sort_click(&mut self, primary: SortOrder, secondary: SortOrder);
+    unsafe fn handle_sort_click(&mut self, button: &UiButton) -> bool;
 }
 
 impl OverlayInteraction for UiState {
@@ -96,13 +96,13 @@ impl OverlayInteraction for UiState {
                 UiButton::Copy => self.copy_url(),
                 UiButton::Whisper(index) => self.copy_whisper_for_row(index),
                 UiButton::SortPrice => {
-                    self.handle_sort_click(SortOrder::PriceAsc, SortOrder::PriceDesc)
+                    self.handle_sort_click(&UiButton::SortPrice);
                 }
                 UiButton::SortTime => {
-                    self.handle_sort_click(SortOrder::IndexedTimeAsc, SortOrder::IndexedTimeAsc)
+                    self.handle_sort_click(&UiButton::SortTime);
                 }
                 UiButton::SortLevel => {
-                    self.handle_sort_click(SortOrder::ItemLevelDesc, SortOrder::ItemLevelDesc)
+                    self.handle_sort_click(&UiButton::SortLevel);
                 }
                 UiButton::Backdrop => {
                     // 标题栏热区，无操作
@@ -319,13 +319,25 @@ impl OverlayInteraction for UiState {
         }
     }
 
-    unsafe fn handle_sort_click(&mut self, primary: SortOrder, secondary: SortOrder) {
-        if self.current_sort == primary {
-            self.current_sort = secondary;
-        } else {
-            self.current_sort = primary;
-        }
+    unsafe fn handle_sort_click(&mut self, button: &UiButton) -> bool {
+        let new_sort = match button {
+            UiButton::SortPrice => match self.current_sort {
+                SortOrder::PriceAsc => SortOrder::PriceDesc,
+                _ => SortOrder::PriceAsc,
+            },
+            UiButton::SortLevel => match self.current_sort {
+                SortOrder::ItemLevelDesc => SortOrder::ItemLevelAsc,
+                _ => SortOrder::ItemLevelDesc,
+            },
+            UiButton::SortTime => match self.current_sort {
+                SortOrder::IndexedTimeDesc => SortOrder::IndexedTimeAsc,
+                _ => SortOrder::IndexedTimeDesc,
+            },
+            _ => return false,
+        };
+        self.current_sort = new_sort;
         self.page = 0;
         InvalidateRect(self.hwnd, std::ptr::null(), 1);
+        true
     }
 }

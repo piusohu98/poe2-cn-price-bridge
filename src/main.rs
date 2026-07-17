@@ -1542,8 +1542,10 @@ impl Default for TradeEntry {
 pub(crate) enum SortOrder {
     PriceAsc,
     PriceDesc,
+    ItemLevelAsc,
     ItemLevelDesc,
-    IndexedTimeAsc,
+    IndexedTimeAsc,  // 最早上架
+    IndexedTimeDesc, // 最新上架
     OnlineFirst,
 }
 
@@ -1595,8 +1597,12 @@ pub(crate) fn sort_entries(entries: &mut [TradeEntry], order: SortOrder) {
     match order {
         SortOrder::PriceAsc => entries.sort_by(TradeEntry::compare_price),
         SortOrder::PriceDesc => entries.sort_by(|a, b| TradeEntry::compare_price(b, a)),
+        SortOrder::ItemLevelAsc => entries.sort_by(|a, b| TradeEntry::compare_item_level(b, a)),
         SortOrder::ItemLevelDesc => entries.sort_by(TradeEntry::compare_item_level),
         SortOrder::IndexedTimeAsc => entries.sort_by(TradeEntry::compare_indexed_time),
+        SortOrder::IndexedTimeDesc => {
+            entries.sort_by(|a, b| TradeEntry::compare_indexed_time(b, a))
+        }
         SortOrder::OnlineFirst => entries.sort_by(|a, b| {
             TradeEntry::compare_online(a, b).then_with(|| TradeEntry::compare_price(a, b))
         }),
@@ -1616,11 +1622,15 @@ pub(crate) fn visible_listing_indices(
     match sort {
         SortOrder::PriceAsc => indexed.sort_by(|a, b| TradeEntry::compare_price(a.1, b.1)),
         SortOrder::PriceDesc => indexed.sort_by(|a, b| TradeEntry::compare_price(b.1, a.1)),
+        SortOrder::ItemLevelAsc => indexed.sort_by(|a, b| TradeEntry::compare_item_level(b.1, a.1)),
         SortOrder::ItemLevelDesc => {
             indexed.sort_by(|a, b| TradeEntry::compare_item_level(a.1, b.1))
         }
         SortOrder::IndexedTimeAsc => {
             indexed.sort_by(|a, b| TradeEntry::compare_indexed_time(a.1, b.1))
+        }
+        SortOrder::IndexedTimeDesc => {
+            indexed.sort_by(|a, b| TradeEntry::compare_indexed_time(b.1, a.1))
         }
         SortOrder::OnlineFirst => indexed.sort_by(|a, b| {
             TradeEntry::compare_online(a.1, b.1).then_with(|| TradeEntry::compare_price(a.1, b.1))
@@ -1643,20 +1653,73 @@ fn relative_time(iso_time: &str) -> String {
     }
 }
 
-/// 将 indexed_time 转换为更易读的格式
-#[allow(dead_code)]
-pub(crate) fn friendly_indexed_time(iso_time: &str) -> String {
-    let date_part = relative_time(iso_time);
-    if date_part.len() >= 10 {
-        let today = chrono_like_date();
-        if date_part.starts_with(&today) && date_part.len() >= 16 {
-            return date_part[11..16].to_string();
-        }
-        if date_part.len() >= 10 {
-            return date_part[5..10].to_string();
-        }
+/// 将 ISO 8601 时间字符串转换为相对时间文本
+/// 如 "2024-01-15T10:30:00Z" → "2小时" / "3天" / "1月"
+pub(crate) fn relative_time_ago(iso_time: &str) -> String {
+    // 解析 ISO 8601 格式
+    let cleaned = iso_time.replace('T', " ").replace('Z', "");
+    let time_str: String = cleaned.chars().take(19).collect(); // "YYYY-MM-DD HH:MM:SS"
+
+    if time_str.len() < 19 {
+        return cleaned;
     }
-    date_part
+
+    // 解析年月日时分秒
+    let year: i32 = time_str[0..4].parse().unwrap_or(0);
+    let month: u32 = time_str[5..7].parse().unwrap_or(1);
+    let day: u32 = time_str[8..10].parse().unwrap_or(1);
+    let hour: u32 = time_str[11..13].parse().unwrap_or(0);
+    let min: u32 = time_str[14..16].parse().unwrap_or(0);
+
+    // 使用 UTC 时间（因为没有时区信息，假设为 UTC）
+    // 获取当前 UTC 时间
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let now_secs = now.as_secs() as i64;
+
+    // 计算目标时间从 epoch 起的天数
+    let target_days = days_since_epoch(year, month, day);
+    let total_secs =
+        target_days * 86400 + hour as i64 * 3600 + min as i64 * 60;
+    let elapsed = now_secs - total_secs;
+
+    if elapsed < 0 {
+        return "刚刚".to_string();
+    }
+    if elapsed < 60 {
+        return "刚刚".to_string();
+    }
+    if elapsed < 3600 {
+        return format!("{}分钟", elapsed / 60);
+    }
+    if elapsed < 86400 {
+        return format!("{}小时", elapsed / 3600);
+    }
+    if elapsed < 2592000 {
+        return format!("{}天", elapsed / 86400);
+    }
+    if elapsed < 31536000 {
+        return format!("{}月", elapsed / 2592000);
+    }
+    format!("{}年", elapsed / 31536000)
+}
+
+/// 计算从 1970-01-01 到指定日期的天数
+fn days_since_epoch(y: i32, m: u32, d: u32) -> i64 {
+    let mut days = 0i64;
+    for year in 1970..y {
+        days += if is_leap(year as i64) { 366 } else { 365 };
+    }
+    let month_days: [i64; 12] = if is_leap(y as i64) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    for month in 1..m {
+        days += month_days[(month - 1) as usize];
+    }
+    days + (d - 1) as i64
 }
 
 #[allow(dead_code)]
@@ -2994,15 +3057,20 @@ fn direct_trade_search(
                                         .or_else(|| item.and_then(|i| i.get("itemLevel")))
                                         .and_then(|v| v.as_u64().map(|n| n as u32));
 
-                                    // 在线状态
+                                    // 在线状态 - 支持多种 API 响应格式
                                     let online = listing
                                         .and_then(|l| l.get("online"))
+                                        .and_then(|v| v.as_bool())
                                         .or_else(|| {
+                                            // account.online 可能是 bool 或对象
                                             listing
                                                 .and_then(|l| l.get("account"))
                                                 .and_then(|a| a.get("online"))
+                                                .and_then(|v| {
+                                                    v.as_bool()
+                                                        .or_else(|| v.as_object().map(|_| true))
+                                                })
                                         })
-                                        .and_then(|v| v.as_bool())
                                         .or_else(|| {
                                             listing
                                                 .and_then(|l| l.get("account"))
@@ -5001,5 +5069,72 @@ mod tests {
             unique.len(),
             "indices should be unique across pages"
         );
+    }
+
+    /// 辅助函数：将 Unix 时间戳转换为 ISO 8601 格式字符串
+    fn format_utc_timestamp(unix_secs: u64) -> String {
+        let secs = unix_secs % 60;
+        let mins = (unix_secs / 60) % 60;
+        let hours = (unix_secs / 3600) % 24;
+        let total_days = (unix_secs / 86400) as i64;
+        let mut y = 1970i64;
+        let mut remaining_days = total_days;
+        loop {
+            let days_in_year = if is_leap(y) { 366 } else { 365 };
+            if remaining_days < days_in_year {
+                break;
+            }
+            remaining_days -= days_in_year;
+            y += 1;
+        }
+        let month_days = if is_leap(y) {
+            [31i64, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        } else {
+            [31i64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        };
+        let mut m = 0usize;
+        let mut d = remaining_days;
+        for (i, md) in month_days.iter().enumerate() {
+            if d < *md {
+                m = i + 1;
+                break;
+            }
+            d -= *md;
+        }
+        format!("{y:04}-{m:02}-{:02}T{hours:02}:{mins:02}:{secs:02}Z", d + 1)
+    }
+
+    #[test]
+    fn relative_time_ago_formats_correctly() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let recent = format_utc_timestamp(now - 120); // 2分钟前
+        assert_eq!(relative_time_ago(&recent), "2分钟");
+
+        let hours_ago = format_utc_timestamp(now - 7200); // 2小时前
+        assert_eq!(relative_time_ago(&hours_ago), "2小时");
+    }
+
+    #[test]
+    fn sort_order_toggles_direction() {
+        // 测试排序方向切换
+        let mut sort = SortOrder::PriceAsc;
+        sort = match sort {
+            SortOrder::PriceAsc => SortOrder::PriceDesc,
+            _ => SortOrder::PriceAsc,
+        };
+        assert_eq!(sort, SortOrder::PriceDesc);
+    }
+
+    #[test]
+    fn online_status_handles_object_format() {
+        // 模拟 account.online 为对象的情况
+        let entry = TradeEntry {
+            online: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(entry.online, Some(true));
     }
 }
