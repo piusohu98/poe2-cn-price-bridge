@@ -5,7 +5,7 @@ use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, SW_HIDE, ShowWindow};
 
 use crate::overlay::layout::{self, OverlayLayout};
-use crate::overlay::model::{UiButton, ViewKind};
+use crate::overlay::model::{QueryState, UiButton, ViewKind};
 use crate::{
     ParsedMod, SortOrder, TradeResult, UiState, copy_text_to_clipboard,
     start_price_query_from_parsed,
@@ -124,31 +124,32 @@ impl OverlayInteraction for UiState {
     /// 键盘快捷键处理，返回 true 表示已处理
     unsafe fn handle_key_down(&mut self, vk_code: u32) -> bool {
         self.touch_activity();
+        let is_loading = matches!(self.view.query_state, Some(QueryState::Loading));
         let has_result = self.current_result().is_some();
         match vk_code {
             0x25 => {
-                if has_result {
+                if has_result && !is_loading {
                     self.page_prev();
                 } else {
                     return false;
                 }
             } // ← 上一页
             0x27 => {
-                if has_result {
+                if has_result && !is_loading {
                     self.page_next();
                 } else {
                     return false;
                 }
             } // → 下一页
             0x4D => {
-                if has_result {
+                if has_result && !is_loading {
                     self.toggle_mod_filters();
                 } else {
                     return false;
                 }
             } // M 同属性
             0x56 => {
-                if has_result {
+                if has_result && !is_loading {
                     self.toggle_value_filters();
                 } else {
                     return false;
@@ -169,7 +170,7 @@ impl OverlayInteraction for UiState {
             } // O 打开市集
             0x31..=0x34 => {
                 // 1-4 切换属性chip
-                if has_result {
+                if has_result && !is_loading {
                     let index = (vk_code - 0x31) as usize;
                     self.toggle_single_mod(index);
                 } else {

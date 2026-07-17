@@ -13,7 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
 use crate::overlay::layout::{
     LayoutPlan, OverlayLayout, compute_column_layout, compute_item_detail_lines, visible_row_count,
 };
-use crate::overlay::model::{UiButton, ViewKind};
+use crate::overlay::model::{QueryState, UiButton, ViewKind};
 use crate::overlay::theme;
 use crate::{
     ItemValueTier, SortOrder, TradeResult, UiState, relative_time_ago, rgb,
@@ -513,6 +513,72 @@ impl OverlayRenderer for UiState {
         let col_time_x = col_status_x + col.status;
         let col_seller_x = col_time_x + col.time;
         let col_action_x = col_seller_x + col.seller;
+
+        // 根据查询状态渲染表格区域
+        match &self.view.query_state {
+            Some(QueryState::Loading) => {
+                // 绘制表头（简化版）
+                rounded_rect(
+                    hdc,
+                    RECT {
+                        left: header_left,
+                        top: table_top,
+                        right: col_action_x + col.action,
+                        bottom: table_top + header_height,
+                    },
+                    theme::BG_TABLE_HEADER,
+                    theme::BTN_BORDER_DEFAULT,
+                    8,
+                );
+                draw_text(
+                    hdc,
+                    "挂单列表",
+                    RECT {
+                        left: header_left,
+                        top: table_top,
+                        right: col_action_x + col.action,
+                        bottom: table_top + header_height,
+                    },
+                    theme::TEXT_HEADER,
+                    self.fonts.bold,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+                // 表格区域显示"查询中"
+                draw_text(
+                    hdc,
+                    "正在请求国服市集…",
+                    RECT {
+                        left: 18,
+                        top: table_top + header_height + 8,
+                        right: rect_width - 18,
+                        bottom: plan.table_body.bottom,
+                    },
+                    theme::TEXT_MUTED,
+                    self.fonts.normal,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+                return;
+            }
+            Some(QueryState::Error(msg)) => {
+                draw_text(
+                    hdc,
+                    &format!("查询失败: {}", msg),
+                    RECT {
+                        left: 18,
+                        top: table_top + header_height + 8,
+                        right: rect_width - 18,
+                        bottom: plan.table_body.bottom,
+                    },
+                    theme::WARNING_TEXT,
+                    self.fonts.normal,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+            }
+            Some(QueryState::Empty) | None => {
+                // 正常渲染表格（None 兼容旧逻辑）
+            }
+            _ => {}
+        }
 
         // 排序方向箭头
         let price_arrow = match self.current_sort {
@@ -1345,45 +1411,93 @@ impl UiState {
                 let detail_lines = compute_item_detail_lines(&result.item);
                 let plan = LayoutPlan::compute(rect, detail_lines, result.item.mods.len());
                 self.paint_result(hdc, &plan, result);
+                let is_loading = matches!(self.view.query_state, Some(QueryState::Loading));
                 let specs = self.button_specs(rect);
-                self.paint_buttons(hdc, &specs);
-                // 底部状态栏
-                // 左侧：快捷键提示
-                draw_text(
-                    hdc,
-                    "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
-                    RECT {
-                        left: 16,
-                        top: rect.bottom - 44,
-                        right: rect.right - 200,
-                        bottom: rect.bottom - 14,
-                    },
-                    theme::TEXT_HINT,
-                    self.fonts.small,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-                );
-                // 右侧：完整状态文字
-                let page_range = if result.entries.is_empty() {
-                    String::new()
+                // Loading 状态下禁用翻页和 Whisper，但保留其他按钮
+                let filtered_specs: Vec<_> = if is_loading {
+                    specs
+                        .into_iter()
+                        .map(|mut spec| {
+                            match spec.button {
+                                UiButton::Prev | UiButton::Next | UiButton::Whisper(_) => {
+                                    spec.enabled = false;
+                                }
+                                _ => {}
+                            }
+                            spec
+                        })
+                        .collect()
                 } else {
-                    let page_size = visible_row_count(&plan.table_body).max(1);
-                    let start = self.page * page_size + 1;
-                    let end = ((self.page + 1) * page_size).min(result.entries.len());
-                    format!("查询到 {} 条，当前 {}-{}", result.total, start, end)
+                    specs
                 };
-                draw_text(
-                    hdc,
-                    &page_range,
-                    RECT {
-                        left: rect.right - 200,
-                        top: rect.bottom - 44,
-                        right: rect.right - 16,
-                        bottom: rect.bottom - 14,
-                    },
-                    theme::TEXT_MUTED,
-                    self.fonts.small,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-                );
+                self.paint_buttons(hdc, &filtered_specs);
+                // 底部状态栏
+                if is_loading {
+                    // Loading 状态：左侧显示提示，右侧显示"查询中"
+                    draw_text(
+                        hdc,
+                        "正在请求国服市集… · Esc 关闭",
+                        RECT {
+                            left: 16,
+                            top: rect.bottom - 44,
+                            right: rect.right - 200,
+                            bottom: rect.bottom - 14,
+                        },
+                        theme::TEXT_HINT,
+                        self.fonts.small,
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                    );
+                    draw_text(
+                        hdc,
+                        "查询中...",
+                        RECT {
+                            left: rect.right - 200,
+                            top: rect.bottom - 44,
+                            right: rect.right - 16,
+                            bottom: rect.bottom - 14,
+                        },
+                        theme::TEXT_MUTED,
+                        self.fonts.small,
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                    );
+                } else {
+                    // 左侧：快捷键提示
+                    draw_text(
+                        hdc,
+                        "←→ 翻页 · M 属性 · V 数值 · Esc 关闭",
+                        RECT {
+                            left: 16,
+                            top: rect.bottom - 44,
+                            right: rect.right - 200,
+                            bottom: rect.bottom - 14,
+                        },
+                        theme::TEXT_HINT,
+                        self.fonts.small,
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                    );
+                    // 右侧：完整状态文字
+                    let page_range = if result.entries.is_empty() {
+                        String::new()
+                    } else {
+                        let page_size = visible_row_count(&plan.table_body).max(1);
+                        let start = self.page * page_size + 1;
+                        let end = ((self.page + 1) * page_size).min(result.entries.len());
+                        format!("查询到 {} 条，当前 {}-{}", result.total, start, end)
+                    };
+                    draw_text(
+                        hdc,
+                        &page_range,
+                        RECT {
+                            left: rect.right - 200,
+                            top: rect.bottom - 44,
+                            right: rect.right - 16,
+                            bottom: rect.bottom - 14,
+                        },
+                        theme::TEXT_MUTED,
+                        self.fonts.small,
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
+                    );
+                }
                 return;
             }
         }

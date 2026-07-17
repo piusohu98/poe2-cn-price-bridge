@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::{
@@ -7,7 +7,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     DeleteObject, FF_DONTCARE, FW_BOLD, FW_NORMAL, HFONT, OUT_DEFAULT_PRECIS,
 };
 
-use crate::{TradeResult, rgb, wide};
+use crate::{ParsedItem, QueryOptions, TradeResult, rgb, wide};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiButton {
@@ -52,6 +52,22 @@ pub struct WindowPos {
     pub y: i32,
 }
 
+/// 查价状态
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
+pub enum QueryState {
+    /// 正在查询
+    Loading,
+    /// 查询成功
+    Success,
+    /// 无结果
+    Empty,
+    /// 查询失败，附带错误信息
+    Error(String),
+    /// 正在重试
+    Retrying,
+}
+
 #[derive(Debug)]
 pub enum OverlayEvent {
     Message {
@@ -59,6 +75,12 @@ pub enum OverlayEvent {
         lines: Vec<String>,
         accent: u32,
         timeout: Duration,
+    },
+    /// 查询开始，立即显示物品详情窗口
+    QueryStarted {
+        item: Box<ParsedItem>,
+        options: QueryOptions,
+        accent: u32,
     },
     Result {
         result: Box<TradeResult>,
@@ -81,6 +103,14 @@ pub struct OverlayView {
     pub current_url: String,
     pub accent: u32,
     pub kind: ViewKind,
+    /// 查价状态，仅在 ViewKind::Result 时有效
+    pub query_state: Option<QueryState>,
+    /// 查询选项，仅在 ViewKind::Result 时有效
+    #[allow(dead_code)]
+    pub query_options: Option<QueryOptions>,
+    /// 查询创建时间，用于过期检测
+    #[allow(dead_code)]
+    pub query_created: Option<Instant>,
 }
 
 impl Default for OverlayView {
@@ -95,6 +125,9 @@ impl Default for OverlayView {
                 "游戏内 Ctrl+C 后自动查价。".to_string(),
                 "首次使用请先在托盘右键设置 Cookie。".to_string(),
             ]),
+            query_state: None,
+            query_options: None,
+            query_created: None,
         }
     }
 }

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- 重构查价状态流：取消独立的"查价中"Message 窗口，复制物品后直接显示物品详情窗口。详情窗口立即展示物品名称、基底类型、词缀等信息，表格区域显示"正在请求国服市集…"，查询完成后在同一窗口更新结果。Loading 状态下禁用翻页、排序、私聊等操作，避免连续查询结果串乱。
+- 新增查询过期保护：使用全局原子计数器，worker 线程完成时检查是否已有新查询，过期结果自动丢弃。
+
 ### Fixed
 
 - 修复 Overlay 在鼠标移动时持续闪烁的问题：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），禁用系统背景擦除（WM_ERASEBKGND 返回 1），添加 WM_MOUSELEAVE 追踪，仅当 hover 按钮变化时才触发重绘。

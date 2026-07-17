@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::slice;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -67,7 +68,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::layout;
 use crate::overlay::layout::{LayoutPlan, OverlayLayout, compute_item_detail_lines};
-use crate::overlay::model::{Fonts, OverlayEvent, OverlayView, UiButton, ViewKind, WindowPos};
+use crate::overlay::model::{
+    Fonts, OverlayEvent, OverlayView, QueryState, UiButton, ViewKind, WindowPos,
+};
 use crate::overlay::render::OverlayRenderer;
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
@@ -2587,6 +2590,7 @@ struct StatDef {
 static STAT_DEFS: OnceLock<Vec<StatDef>> = OnceLock::new();
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 static UI_HWND: OnceLock<isize> = OnceLock::new();
+static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(0);
 
 fn get_http_client() -> &'static Client {
     HTTP_CLIENT.get_or_init(|| {
@@ -3184,6 +3188,8 @@ pub(crate) struct UiState {
     pub(crate) filters_dirty: bool,
     pub(crate) hovered_button: Option<UiButton>,
     pub(crate) track_mouse: bool,
+    #[allow(dead_code)]
+    pub(crate) last_query_id: u64,
 }
 
 impl UiState {
@@ -3218,6 +3224,7 @@ impl UiState {
             filters_dirty: false,
             hovered_button: None,
             track_mouse: true,
+            last_query_id: 0,
         }
     }
 
@@ -3435,8 +3442,56 @@ impl UiState {
                     current_url: String::new(),
                     accent,
                     kind: ViewKind::Message(lines),
+                    query_state: None,
+                    query_options: None,
+                    query_created: None,
                 };
                 self.show_panel(580, 360, timeout);
+            }
+            OverlayEvent::QueryStarted {
+                item,
+                options,
+                accent,
+            } => {
+                // 创建一个仅包含物品信息的"空" TradeResult
+                let result = TradeResult {
+                    item: (*item).clone(),
+                    league: String::new(),
+                    total: 0,
+                    entries: vec![],
+                    summary: vec!["查询中...".to_string()],
+                    url: String::new(),
+                    options: options.clone(),
+                    page_size: 10,
+                    value_tier: ItemValueTier::Unknown,
+                };
+                let detail_lines = compute_item_detail_lines(&item);
+                let modifier_count = item.mods.len();
+                let entry_count = 0usize;
+                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                let max_height = screen_h * 90 / 100;
+                let height = LayoutPlan::suggested_height(
+                    detail_lines,
+                    modifier_count,
+                    entry_count,
+                    480,
+                    max_height,
+                );
+                self.page = 0;
+                self.query_options = options.clone();
+                self.current_sort = SortOrder::PriceAsc;
+                self.view = OverlayView {
+                    title: "流放2查价助手".to_string(),
+                    subtitle: "国服查价".to_string(),
+                    status: "正在查询...".to_string(),
+                    current_url: String::new(),
+                    accent,
+                    kind: ViewKind::Result(Box::new(result)),
+                    query_state: Some(QueryState::Loading),
+                    query_options: Some(options),
+                    query_created: Some(Instant::now()),
+                };
+                self.show_panel(580, height, Duration::from_secs(30));
             }
             OverlayEvent::Result {
                 result,
@@ -3460,6 +3515,7 @@ impl UiState {
                     .unwrap_or("无标价")
                     .to_string();
                 let balloon_url = result.url.clone();
+                let options = result.options.clone();
                 self.view = OverlayView {
                     title: "流放2查价助手".to_string(),
                     subtitle: "国服查价".to_string(),
@@ -3467,6 +3523,9 @@ impl UiState {
                     current_url: balloon_url,
                     accent,
                     kind: ViewKind::Result(result),
+                    query_state: Some(QueryState::Success),
+                    query_options: Some(options),
+                    query_created: Some(Instant::now()),
                 };
                 let height = match &self.view.kind {
                     ViewKind::Result(result) => {
@@ -3486,6 +3545,7 @@ impl UiState {
                     _ => 780,
                 };
                 self.show_panel(580, height, timeout);
+                self.current_sort = SortOrder::PriceAsc;
                 // 查询成功时显示托盘气泡通知
                 self.show_tray_balloon(
                     "查价完成",
@@ -3683,6 +3743,9 @@ impl UiState {
                 "Cookie 使用 Windows DPAPI 加密，仅当前 Windows 用户可解密。".to_string(),
                 "遇到问题先运行自检，再把 selfcheck.txt 发给维护者。".to_string(),
             ]),
+            query_state: None,
+            query_options: None,
+            query_created: None,
         };
         self.show_panel(580, 360, Duration::from_secs(18));
     }
@@ -4062,18 +4125,15 @@ fn start_price_query_from_parsed(
             &parsed.rarity_raw
         }
     ));
-    let _ = event_tx.send(OverlayEvent::Message {
-        title: format!("查价中: {target}"),
-        lines: vec![
-            if options.use_mods {
-                "正在按同属性请求国服市集...".to_string()
-            } else {
-                "正在直接请求国服市集...".to_string()
-            },
-            format!("第一次使用请先设置 Cookie。{}", support_hint()),
-        ],
+
+    // 递增查询 ID 用于过期保护
+    let query_id = NEXT_QUERY_ID.fetch_add(1, Ordering::Relaxed) + 1;
+
+    // 不再发送"查价中"Message，改为发送 QueryStarted 立即显示物品详情
+    let _ = event_tx.send(OverlayEvent::QueryStarted {
+        item: Box::new(parsed.clone()),
+        options: options.clone(),
         accent: rgb(56, 189, 248),
-        timeout: Duration::from_secs(8),
     });
 
     if let Some(hwnd) = UI_HWND.get() {
@@ -4085,6 +4145,11 @@ fn start_price_query_from_parsed(
     thread::spawn(
         move || match direct_trade_search(parsed.clone(), options.clone()) {
             Ok(result) => {
+                // 查询过期保护：如果在此期间有新的查询，丢弃旧结果
+                if query_id != NEXT_QUERY_ID.load(Ordering::Relaxed) {
+                    log(format!("查询 {} 已过期，丢弃结果", query_id));
+                    return;
+                }
                 log(format!(
                     "查价结果: {} | {}",
                     result.item.display,
@@ -4117,6 +4182,10 @@ fn start_price_query_from_parsed(
                 });
             }
             Err(TradeError::Auth(message)) => {
+                if query_id != NEXT_QUERY_ID.load(Ordering::Relaxed) {
+                    log(format!("查询 {} 已过期，丢弃认证错误", query_id));
+                    return;
+                }
                 log(format!("查价认证失败: {message}"));
                 append_history(HistoryEntry {
                     ts: unix_now(),
@@ -4141,6 +4210,10 @@ fn start_price_query_from_parsed(
                 });
             }
             Err(TradeError::Request(message)) => {
+                if query_id != NEXT_QUERY_ID.load(Ordering::Relaxed) {
+                    log(format!("查询 {} 已过期，丢弃请求错误", query_id));
+                    return;
+                }
                 log(format!("查价失败: {message}"));
                 append_history(HistoryEntry {
                     ts: unix_now(),
@@ -4600,12 +4673,13 @@ impl UiState {
             filters_dirty: false,
             hovered_button: None,
             track_mouse: true,
+            last_query_id: 0,
         }
     }
 }
 
-#[cfg(test)]
 impl TradeResult {
+    #[allow(dead_code)]
     pub(crate) fn new_for_test(item: ParsedItem) -> Self {
         Self {
             item,
