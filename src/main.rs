@@ -370,6 +370,8 @@ struct AppSettings {
     auto_clipboard: bool,
     #[serde(default = "default_manual_hotkey")]
     manual_hotkey: String,
+    #[serde(default)]
+    filter_rules: FilterRulesConfig,
 }
 
 fn default_primary_league() -> String {
@@ -477,6 +479,7 @@ impl Default for AppSettings {
             result_timeout_seconds: default_result_timeout_seconds(),
             auto_clipboard: default_auto_clipboard(),
             manual_hotkey: default_manual_hotkey(),
+            filter_rules: FilterRulesConfig::default(),
         }
     }
 }
@@ -715,6 +718,8 @@ fn write_diagnostics(target: Option<PathBuf>) -> Result<PathBuf> {
          result_timeout_seconds: {}\n\
          auto_clipboard: {}\n\
          manual_hotkey: {}\n\
+         filter_rules_enabled: {}\n\
+         filter_rules_count: {}\n\
          history_file: {}\n\
          \n--- recent history ---\n{}\n\
          \n--- recent log ---\n{}\n",
@@ -743,6 +748,8 @@ fn write_diagnostics(target: Option<PathBuf>) -> Result<PathBuf> {
         settings.result_timeout_seconds,
         settings.auto_clipboard,
         manual_hotkey_label(&settings),
+        settings.filter_rules.enabled,
+        settings.filter_rules.rules.len(),
         history_file().display(),
         history_preview(30),
         tail_log(160)
@@ -1469,6 +1476,318 @@ struct TradeResult {
     url: String,
     options: QueryOptions,
     page_size: usize,
+    value_tier: ItemValueTier,
+}
+
+/// 物品价值等级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum ItemValueTier {
+    /// 神装 / 极高价值
+    Legendary,
+    /// 高价值
+    High,
+    /// 中等价值
+    Medium,
+    /// 普通 / 一般
+    Normal,
+    /// 低价值 / 垃圾
+    Junk,
+    /// 未估价 / 无法判断
+    Unknown,
+}
+
+impl ItemValueTier {
+    /// 价值等级的显示名称
+    fn label(&self) -> &'static str {
+        match self {
+            ItemValueTier::Legendary => "⭐ 神装",
+            ItemValueTier::High => "💎 高价值",
+            ItemValueTier::Medium => "📦 中等",
+            ItemValueTier::Normal => "🔹 普通",
+            ItemValueTier::Junk => "🗑️ 垃圾",
+            ItemValueTier::Unknown => "❓ 未估价",
+        }
+    }
+
+    /// 价值等级对应的颜色（RGB）
+    fn color(&self) -> u32 {
+        match self {
+            ItemValueTier::Legendary => rgb(251, 191, 36),
+            ItemValueTier::High => rgb(244, 114, 182),
+            ItemValueTier::Medium => rgb(134, 239, 172),
+            ItemValueTier::Normal => rgb(147, 197, 253),
+            ItemValueTier::Junk => rgb(148, 163, 184),
+            ItemValueTier::Unknown => rgb(156, 163, 175),
+        }
+    }
+}
+
+impl Default for ItemValueTier {
+    fn default() -> Self {
+        ItemValueTier::Unknown
+    }
+}
+
+/// 单条筛选规则
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FilterRule {
+    /// 规则名称
+    name: String,
+    /// 匹配的稀有度（空列表表示全部匹配）
+    rarities: Vec<String>,
+    /// 匹配的物品类别（空列表表示全部匹配）
+    item_classes: Vec<String>,
+    /// 最低价格（混沌石等价，0 表示不限制）
+    min_price_chaos: f64,
+    /// 最高价格（0 表示不限制）
+    max_price_chaos: f64,
+    /// 满足条件后判定的价值等级
+    tier: ItemValueTier,
+    /// 是否启用
+    enabled: bool,
+}
+
+impl Default for FilterRule {
+    fn default() -> Self {
+        Self {
+            name: "新规则".to_string(),
+            rarities: Vec::new(),
+            item_classes: Vec::new(),
+            min_price_chaos: 0.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Normal,
+            enabled: true,
+        }
+    }
+}
+
+/// 筛选规则集合
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FilterRulesConfig {
+    /// 是否启用筛选规则
+    enabled: bool,
+    /// 规则列表（按顺序匹配，第一条匹配的生效）
+    rules: Vec<FilterRule>,
+    /// 默认价值等级（无规则匹配时使用）
+    default_tier: ItemValueTier,
+}
+
+impl Default for FilterRulesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rules: default_filter_rules(),
+            default_tier: ItemValueTier::Normal,
+        }
+    }
+}
+
+/// 默认筛选规则模板
+fn default_filter_rules() -> Vec<FilterRule> {
+    vec![
+        FilterRule {
+            name: "传奇装备-高价值".to_string(),
+            rarities: vec!["unique".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 50.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::High,
+            enabled: true,
+        },
+        FilterRule {
+            name: "传奇装备-普通".to_string(),
+            rarities: vec!["unique".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 0.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Medium,
+            enabled: true,
+        },
+        FilterRule {
+            name: "稀有装备-高价值".to_string(),
+            rarities: vec!["rare".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 20.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::High,
+            enabled: true,
+        },
+        FilterRule {
+            name: "稀有装备-中等".to_string(),
+            rarities: vec!["rare".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 5.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Medium,
+            enabled: true,
+        },
+        FilterRule {
+            name: "稀有装备-垃圾".to_string(),
+            rarities: vec!["rare".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 0.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Junk,
+            enabled: true,
+        },
+        FilterRule {
+            name: "魔法装备-垃圾".to_string(),
+            rarities: vec!["magic".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 10.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Medium,
+            enabled: true,
+        },
+        FilterRule {
+            name: "魔法装备-普通".to_string(),
+            rarities: vec!["magic".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 0.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Junk,
+            enabled: true,
+        },
+        FilterRule {
+            name: "普通装备-垃圾".to_string(),
+            rarities: vec!["normal".to_string()],
+            item_classes: Vec::new(),
+            min_price_chaos: 0.0,
+            max_price_chaos: 0.0,
+            tier: ItemValueTier::Junk,
+            enabled: true,
+        },
+    ]
+}
+
+/// 解析价格字符串为混沌石等价数量
+/// 支持格式："10 chaos"、"5 divine"、"1 chaos" 等
+fn parse_price_to_chaos(price_str: &str) -> Option<f64> {
+    let price_str = price_str.trim();
+    if price_str.is_empty() || price_str == "未标价" {
+        return None;
+    }
+
+    let mut currency = String::new();
+
+    let chars: Vec<char> = price_str.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+
+    let mut num_str = String::new();
+    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == ',') {
+        num_str.push(chars[i]);
+        i += 1;
+    }
+
+    num_str = num_str.replace(',', "");
+    let amount: f64 = match num_str.parse() {
+        Ok(val) => val,
+        Err(_) => return None,
+    };
+
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+
+    while i < chars.len() && !chars[i].is_whitespace() {
+        currency.push(chars[i]);
+        i += 1;
+    }
+
+    if currency.is_empty() {
+        return Some(amount);
+    }
+
+    let currency_lower = currency.to_ascii_lowercase();
+    let chaos_value = match currency_lower.as_str() {
+        "chaos" | "混沌" | "混沌石" | "c" => 1.0,
+        "divine" | "div" | "神圣" | "神圣石" | "d" => 100.0,
+        "exalted" | "ex" | "崇高" | "崇高石" | "e" => 50.0,
+        "fusing" | "链结石" | "链" => 0.5,
+        "alchemy" | "点金石" | "点金" => 0.3,
+        "scouring" | "洗点" | "洗点石" => 0.2,
+        "chromatic" | "幻色" | "幻色石" => 0.1,
+        "chance" | "机会" | "机会石" => 0.1,
+        "jeweller" | "工匠" | "工匠石" => 0.1,
+        _ => 1.0,
+    };
+
+    Some(amount * chaos_value)
+}
+
+/// 从挂单列表中获取第一个有效价格（混沌石等价）
+fn first_price_in_chaos(entries: &[TradeEntry]) -> Option<f64> {
+    for entry in entries {
+        if let Some(value) = parse_price_to_chaos(&entry.price) {
+            if value > 0.0 {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// 判断物品是否匹配某条规则
+fn rule_matches(rule: &FilterRule, item: &ParsedItem, price_chaos: Option<f64>) -> bool {
+    if !rule.enabled {
+        return false;
+    }
+
+    if !rule.rarities.is_empty() {
+        let rarity_matched = rule
+            .rarities
+            .iter()
+            .any(|r| r.eq_ignore_ascii_case(&item.rarity));
+        if !rarity_matched {
+            return false;
+        }
+    }
+
+    if !rule.item_classes.is_empty() {
+        let class_matched = rule
+            .item_classes
+            .iter()
+            .any(|c| item.item_class.contains(c));
+        if !class_matched {
+            return false;
+        }
+    }
+
+    if rule.min_price_chaos > 0.0 || rule.max_price_chaos > 0.0 {
+        let price = match price_chaos {
+            Some(p) => p,
+            None => return false,
+        };
+        if rule.min_price_chaos > 0.0 && price < rule.min_price_chaos {
+            return false;
+        }
+        if rule.max_price_chaos > 0.0 && price > rule.max_price_chaos {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// 根据筛选规则评估物品价值等级
+fn evaluate_item_value(item: &ParsedItem, entries: &[TradeEntry], config: &FilterRulesConfig) -> ItemValueTier {
+    if !config.enabled {
+        return ItemValueTier::Unknown;
+    }
+
+    let price_chaos = first_price_in_chaos(entries);
+
+    for rule in &config.rules {
+        if rule_matches(rule, item, price_chaos) {
+            return rule.tier;
+        }
+    }
+
+    config.default_tier
 }
 
 #[derive(Debug)]
@@ -2293,6 +2612,7 @@ fn direct_trade_search(
 
             let summary = summarize_entries(&entries);
             let url = trade_result_url(&league, &query_id);
+            let value_tier = evaluate_item_value(&parsed, &entries, &settings.filter_rules);
             return Ok(TradeResult {
                 item: parsed,
                 league,
@@ -2302,6 +2622,7 @@ fn direct_trade_search(
                 url,
                 options,
                 page_size: settings.page_size,
+                value_tier,
             });
         }
     }
@@ -3484,7 +3805,10 @@ impl UiState {
 
         match &self.view.kind {
             ViewKind::Message(lines) => self.paint_message(hdc, rect, lines),
-            ViewKind::Result(result) => self.paint_result(hdc, rect, result),
+            ViewKind::Result(result) => {
+                self.paint_value_tier_badge(hdc, rect, result.value_tier);
+                self.paint_result(hdc, rect, result);
+            }
         }
 
         self.paint_buttons(hdc, rect);
@@ -3527,6 +3851,33 @@ impl UiState {
         );
 
         EndPaint(self.hwnd, &ps);
+    }
+
+    unsafe fn paint_value_tier_badge(&self, hdc: HDC, rect: RECT, tier: ItemValueTier) {
+        let label = tier.label();
+        let color = tier.color();
+        let badge_w = 120;
+        let badge_h = 28;
+        let badge_rect = RECT {
+            left: rect.right - badge_w - 16,
+            top: 18,
+            right: rect.right - 16,
+            bottom: 18 + badge_h,
+        };
+        rounded_rect(hdc, badge_rect, rgb(22, 26, 32), color, 8);
+        draw_text(
+            hdc,
+            label,
+            RECT {
+                left: badge_rect.left + 8,
+                top: badge_rect.top,
+                right: badge_rect.right - 8,
+                bottom: badge_rect.bottom,
+            },
+            color,
+            self.fonts.small,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
     }
 
     unsafe fn paint_message(&self, hdc: HDC, rect: RECT, lines: &[String]) {

@@ -1,7 +1,16 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)]
     [string] $Root
 )
+
+Add-Type -Name Win32 -Namespace System -MemberDefinition @'
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+$hwnd = [System.Win32]::GetConsoleWindow()
+[System.Win32]::ShowWindow($hwnd, 0)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
@@ -21,6 +30,7 @@ $defaults = @{
     result_timeout_seconds = 16
     auto_clipboard = $true
     manual_hotkey = 'F8'
+    filter_rules_enabled = $true
 }
 
 function Get-Config {
@@ -42,6 +52,13 @@ function Ensure-Settings($config) {
         if (-not $config.settings.PSObject.Properties[$key]) {
             $config.settings | Add-Member -Force -MemberType NoteProperty -Name $key -Value $defaults[$key]
         }
+    }
+    if (-not $config.settings.PSObject.Properties['filter_rules']) {
+        $config.settings | Add-Member -Force -MemberType NoteProperty -Name filter_rules -Value ([pscustomobject]@{
+            enabled = $defaults.filter_rules_enabled
+            rules = @()
+            default_tier = 'Normal'
+        })
     }
     return $config
 }
@@ -251,7 +268,11 @@ $config = Ensure-Settings (Get-Config)
                         <ComboBox x:Name="ManualHotkey" Grid.Row="4" Grid.Column="1" Width="170" HorizontalAlignment="Left" Style="{StaticResource Combo}"/>
                         <CheckBox x:Name="AutoClipboard" Grid.Row="4" Grid.Column="3" Grid.ColumnSpan="2" Content="启用 Ctrl+C 自动查价" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
 
-                        <TextBlock Grid.Row="5" Grid.ColumnSpan="5" Text="数值建议：最多抓取 80，每批 10，每页 8，面板停留 16 秒。热键可关闭，Ctrl+C 自动查价仍可单独启用。" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <TextBlock Text="物品筛选" Grid.Row="5" Grid.Column="0" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="FilterRulesEnabled" Grid.Row="5" Grid.Column="1" Content="启用物品价值筛选（自动判断价值等级）" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                        <Button x:Name="ResetFilterRulesButton" Grid.Row="5" Grid.Column="3" Grid.ColumnSpan="2" Content="重置默认规则" Style="{StaticResource BaseButton}" HorizontalAlignment="Right" Width="120"/>
+
+                        <TextBlock Grid.Row="6" Grid.ColumnSpan="5" Text="数值建议：最多抓取 80，每批 10，每页 8，面板停留 16 秒。热键可关闭，Ctrl+C 自动查价仍可单独启用。价值筛选基于稀有度和市集价格自动判断。" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
 
                         <StackPanel Grid.Row="7" Grid.ColumnSpan="5" Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button x:Name="CookieButton" Content="设置 Cookie" Width="112" Style="{StaticResource BaseButton}"/>
@@ -292,6 +313,8 @@ $pageSize = Find-Control 'PageSize'
 $timeout = Find-Control 'TimeoutSeconds'
 $manualHotkey = Find-Control 'ManualHotkey'
 $autoClipboard = Find-Control 'AutoClipboard'
+$filterRulesEnabled = Find-Control 'FilterRulesEnabled'
+$resetFilterRulesButton = Find-Control 'ResetFilterRulesButton'
 $cookie = Find-Control 'CookieButton'
 $defaultsButton = Find-Control 'DefaultsButton'
 $folder = Find-Control 'FolderButton'
@@ -353,6 +376,7 @@ function Apply-DefaultsToForm {
     $pageSize.Text = [string]$defaults.page_size
     $timeout.Text = [string]$defaults.result_timeout_seconds
     $autoClipboard.IsChecked = [bool]$defaults.auto_clipboard
+    $filterRulesEnabled.IsChecked = [bool]$defaults.filter_rules_enabled
     Set-ComboSelection $manualHotkey $defaults.manual_hotkey
 }
 
@@ -395,6 +419,12 @@ function Save-SettingsFromForm {
     $config.settings.result_timeout_seconds = Get-IntInRange $timeout.Text $defaults.result_timeout_seconds 5 90
     $config.settings.auto_clipboard = [bool]$autoClipboard.IsChecked
     $config.settings.manual_hotkey = $selectedHotkey
+
+    if (-not $config.settings.PSObject.Properties['filter_rules']) {
+        $config.settings | Add-Member -Force -MemberType NoteProperty -Name filter_rules -Value ([pscustomobject]@{})
+    }
+    $config.settings.filter_rules.enabled = [bool]$filterRulesEnabled.IsChecked
+
     Save-Config $config
     Set-Status -Text '已保存。运行中的工具会自动读取新设置。' -Kind 'ok'
     return $true
@@ -407,6 +437,7 @@ $batch.Text = [string]$config.settings.fetch_batch_size
 $pageSize.Text = [string]$config.settings.page_size
 $timeout.Text = [string]$config.settings.result_timeout_seconds
 $autoClipboard.IsChecked = [bool]$config.settings.auto_clipboard
+$filterRulesEnabled.IsChecked = [bool]$config.settings.filter_rules.enabled
 $currentHotkey = [string]$config.settings.manual_hotkey
 if (@('off', 'none', 'disabled') -contains $currentHotkey.Trim().ToLowerInvariant()) {
     $currentHotkey = '关闭'
@@ -442,7 +473,12 @@ $cookie.add_Click({
 
 $defaultsButton.add_Click({
     Apply-DefaultsToForm
-    Set-Status -Text '已恢复推荐默认值，点击“保存”后生效。'
+    Set-Status -Text '已恢复推荐默认值，点击"保存"后生效。'
+})
+
+$resetFilterRulesButton.add_Click({
+    $filterRulesEnabled.IsChecked = $true
+    Set-Status -Text '已重置筛选规则开关，点击"保存"后生效。规则定义使用 Rust 端默认值。'
 })
 
 $folder.add_Click({

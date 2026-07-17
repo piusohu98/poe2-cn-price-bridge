@@ -1,7 +1,16 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)]
     [string] $Root
 )
+
+Add-Type -Name Win32 -Namespace System -MemberDefinition @'
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+$hwnd = [System.Win32]::GetConsoleWindow()
+[System.Win32]::ShowWindow($hwnd, 0)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
