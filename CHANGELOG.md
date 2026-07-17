@@ -2,32 +2,21 @@
 
 ## Unreleased
 
+## 0.4.2
+
 ### Added
 
-- 通货中文显示：新增 `currency` 模块，支持 24 种通货的中文名称映射（如 chaos→混沌石、divine→神圣石）。`price_text` 函数改为使用 `currency::format_price_zh` 生成中文价格显示，未知通货自动回退显示原始代码。排序和价值计算继续使用 `price_amount` 数值字段，不受本地化影响。
+- 通货中文显示：新增 `currency` 模块，支持 24 种通货的中文名称映射（如 chaos→混沌石、divine→神圣石）。`price_text` 函数改为使用 `currency::format_price_zh` 生成中文价格显示，未知通货自动回退显示原始代码。
 
 ### Changed
 
-- 重构查价状态流：取消独立的"查价中"Message 窗口，复制物品后直接显示物品详情窗口。详情窗口立即展示物品名称、基底类型、词缀等信息，表格区域显示"正在请求国服市集…"，查询完成后在同一窗口更新结果。Loading 状态下禁用翻页、排序、私聊等操作，避免连续查询结果串乱。
-- 新增查询过期保护：使用全局原子计数器，worker 线程完成时检查是否已有新查询，过期结果自动丢弃。
+- 重构查价状态流：取消独立的"查价中"Message 窗口，复制物品后直接显示物品详情窗口。详情窗口立即展示物品名称、基底类型、词缀等信息，表格区域显示"正在请求国服市集…"，查询完成后在同一窗口更新结果。
 
 ### Fixed
 
-- 优化词缀识别状态与筛选提示：消除重复的"未识别"信息。词缀行已显示状态（已选中/未选中/未识别），不再在词缀列表底部重复汇总；filter_status 区域改为显示统计信息（已识别 X/Y 条交易属性），区分三种状态（无词缀/未识别/已识别）。filter_status 高度调整为 30px，确保筛选状态文字和条件变更提示各占独立行，不与 filter_actions 按钮区域重叠。filters_dirty 只在一个位置显示"条件已修改 — 点击重新搜索以应用"。查询开始后重置 filters_dirty，避免成功结果继续显示旧警告。
-- 修复每行出现两个私聊按钮的问题：删除 render.rs 中表格行的手动绘制（rounded_rect + draw_text），仅保留 layout.rs 的 UiButtonSpec + paint_buttons 路径，确保每行只有一个私聊按钮。
-- 完善复制私聊功能：复制成功后调用 touch_activity() 刷新自动隐藏计时器。
-- 修复 Overlay 在鼠标移动时持续闪烁的问题：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），禁用系统背景擦除（WM_ERASEBKGND 返回 1），添加 WM_MOUSELEAVE 追踪，仅当 hover 按钮变化时才触发重绘。
-
-### Tests
-
-- 新增 `whisper_button_count_per_visible_listing` 测试，确保每个可见挂单只有一个 Whisper 按钮。
-- 新增 hover 状态转换测试 `hover_transition_does_not_trigger_redundant_repaint`，确保同一按钮不变时不触发重绘、不同按钮变化时触发重绘。
-- 新增查询状态流测试 `query_state_transitions` 和 `query_state_not_equal`，验证 `QueryState` 各变体正确区分。
-- 新增 `whisper_count_per_listing` 回归测试，在 main.rs 中验证私聊按钮与可见行数一致。
-- 新增 hover 回归测试 `hover_changes_trigger_repaint_only_when_different`，使用 `Close`/`Pin` 变体验证不同按钮组合下的重绘逻辑。
-- 新增 `query_id_increments_to_prevent_stale_results` 测试，验证原子计数器递增正确性，防止过期查询结果覆盖新结果。
-- 新增通货回退测试 `currency_fallback_does_not_show_empty` 和 `format_price_str_zh_missing_fields`，确保未知通货和缺失字段正确回退。
-- 新增 `docs/manual_test_checklist.md` 人工 UI 验收清单，覆盖闪烁、私聊按钮、查询状态、通货中文化和词缀状态。
+- 词缀识别状态与筛选提示：消除重复的"未识别"信息，filter_status 区域改为显示统计信息（已识别 X/Y 条交易属性），filters_dirty 只显示一次，查询开始后重置。
+- 双私聊按钮：删除 render.rs 中表格行的手动绘制，确保每行只有一个私聊按钮。
+- 鼠标闪烁：引入 GDI 双缓冲（CreateCompatibleDC/CreateCompatibleBitmap/BitBlt），WM_ERASEBKGND 返回 1，WM_MOUSELEAVE 追踪，仅 hover 变化时重绘。
 
 ## 0.4.1
 
