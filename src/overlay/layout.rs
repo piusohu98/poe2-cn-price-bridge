@@ -1,4 +1,4 @@
-﻿use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::Foundation::RECT;
 
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::model::{UiButton, UiButtonSpec};
@@ -851,6 +851,180 @@ mod tests {
                 i + 1,
                 rects[i + 1].top
             );
+        }
+    }
+
+    #[test]
+    fn layout_plan_works_for_different_widths() {
+        for w in &[500, 580, 700] {
+            let rect = RECT {
+                left: 0,
+                top: 0,
+                right: *w,
+                bottom: 780,
+            };
+            let plan = LayoutPlan::compute(rect, 6, 6);
+            assert!(plan.price_summary.right <= *w);
+            assert!(plan.table_header.right <= *w);
+        }
+    }
+
+    #[test]
+    fn layout_plan_handles_zero_modifiers() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 2, 0); // 普通物品，0词缀
+        assert!(plan.modifiers.bottom > plan.modifiers.top);
+    }
+
+    #[test]
+    fn layout_plan_handles_many_modifiers() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 12, 12); // 12词缀
+        // 多词缀时 top 9 个区域应该有合理高度
+        assert!(plan.item_details.bottom > plan.item_details.top);
+        assert!(plan.modifiers.bottom > plan.modifiers.top);
+    }
+
+    #[test]
+    fn invisible_hit_regions_have_visible_false() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let item = crate::make_test_item_with_mods(6);
+        let result = crate::TradeResult::new_for_test(item);
+        let state = crate::UiState::new_for_test();
+        let specs = state.button_specs_for_result(&plan, &result);
+
+        for spec in &specs {
+            match spec.button {
+                UiButton::ModToggle(_)
+                | UiButton::SortPrice
+                | UiButton::SortLevel
+                | UiButton::SortTime
+                | UiButton::Backdrop => {
+                    assert!(
+                        !spec.visible,
+                        "hit region {:?} should be invisible",
+                        spec.button
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn visible_buttons_have_visible_true() {
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let mut item = crate::make_test_item_with_mods(6);
+        item.required_level = Some(60);
+        let mut result = crate::TradeResult::new_for_test(item);
+        result.entries = vec![
+            crate::TradeEntry {
+                seller: "SellerA".into(),
+                price: "1 chaos".into(),
+                price_amount: Some(1.0),
+                ..Default::default()
+            },
+            crate::TradeEntry {
+                seller: "SellerB".into(),
+                price: "2 chaos".into(),
+                price_amount: Some(2.0),
+                ..Default::default()
+            },
+        ];
+        let state = crate::UiState::new_for_test();
+        let specs = state.button_specs_for_result(&plan, &result);
+
+        for spec in &specs {
+            match spec.button {
+                UiButton::RerunSearch
+                | UiButton::Mods
+                | UiButton::Values
+                | UiButton::Prev
+                | UiButton::Next
+                | UiButton::OpenTrade
+                | UiButton::Copy
+                | UiButton::Whisper(_) => {
+                    assert!(spec.visible, "button {:?} should be visible", spec.button);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn all_buttons_within_window_bounds() {
+        for w in &[500, 580, 700] {
+            for h in &[480, 600, 780] {
+                let rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: *w,
+                    bottom: *h,
+                };
+                let plan = LayoutPlan::compute(rect, 6, 6);
+                let item = crate::make_test_item_with_mods(6);
+                let mut result = crate::TradeResult::new_for_test(item);
+                result.entries = vec![crate::TradeEntry {
+                    seller: "S".into(),
+                    price: "1 chaos".into(),
+                    price_amount: Some(1.0),
+                    ..Default::default()
+                }];
+                let state = crate::UiState::new_for_test();
+                let specs = state.button_specs_for_result(&plan, &result);
+                for spec in &specs {
+                    assert!(
+                        spec.rect.left >= 0,
+                        "button {:?} left out of bounds at {}x{}",
+                        spec.button,
+                        w,
+                        h
+                    );
+                    assert!(
+                        spec.rect.right <= *w,
+                        "button {:?} right out of bounds at {}x{}",
+                        spec.button,
+                        w,
+                        h
+                    );
+                    assert!(
+                        spec.rect.top >= 0,
+                        "button {:?} top out of bounds at {}x{}",
+                        spec.button,
+                        w,
+                        h
+                    );
+                    assert!(
+                        spec.rect.bottom <= *h,
+                        "button {:?} bottom out of bounds at {}x{}",
+                        spec.button,
+                        w,
+                        h
+                    );
+                }
+            }
         }
     }
 }

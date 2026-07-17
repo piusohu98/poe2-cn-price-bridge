@@ -16,6 +16,10 @@
 - 新增 `Backdrop` 标题栏热区（不可见）和 `OpenTrade` 按钮变体。
 - 列布局计算统一为 `compute_column_layout()` 函数，渲染和按钮热区共用同一套列宽。
 - 新增布局不重叠测试 `layout_plan_rects_dont_overlap` 和 Y 坐标顺序测试 `layout_plan_rects_sequential_y`。
+- 新增布局测试 `layout_plan_works_for_different_widths`、`layout_plan_handles_zero_modifiers`、`layout_plan_handles_many_modifiers`，覆盖多窗口尺寸、零词缀和多词缀场景。
+- 新增可见性分离测试 `invisible_hit_regions_have_visible_false` 和 `visible_buttons_have_visible_true`，确保热区和可见按钮的 `visible` 字段正确。
+- 新增边界测试 `all_buttons_within_window_bounds`，覆盖多窗口尺寸组合下所有按钮不越界。
+- 新增需求等级回归测试 `required_level_not_concatenated`，防止多数字行错误拼接。
 - 修复挂单排序、分页和私聊按钮之间的索引错位：引入 `visible_listing_indices` 统一函数，排序时保留原始索引，确保渲染表格和 Whisper 按钮引用同一原始条目；私聊复制优先使用服务端返回的 `whisper_text`。
 - 在线状态解析：支持 `account.online` 为对象（非空对象视为在线）和 `account.status` 字符串格式，修复部分 API 响应下在线状态无法正确识别的问题。
 - 上架时间显示：从日期格式改为相对时间（如"2分钟""3小时""5天"），使用 `relative_time_ago` 函数替代 `friendly_indexed_time`。

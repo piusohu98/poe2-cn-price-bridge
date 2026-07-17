@@ -4538,6 +4538,72 @@ fn main() -> Result<()> {
 }
 
 #[cfg(test)]
+impl UiState {
+    pub(crate) fn new_for_test() -> Self {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (_, action_rx) = std::sync::mpsc::channel();
+        Self {
+            hwnd: std::ptr::null_mut(),
+            event_tx,
+            event_rx,
+            action_rx,
+            view: OverlayView::default(),
+            fonts: unsafe { std::mem::zeroed() },
+            pinned: false,
+            hide_deadline: None,
+            overlay_pos: None,
+            page: 0,
+            query_options: QueryOptions::default(),
+            last_clipboard_text: String::new(),
+            last_clipboard_check: std::time::Instant::now(),
+            last_settings_reload: std::time::Instant::now(),
+            settings: AppSettings::default(),
+            registered_manual_hotkey: None,
+            tray_added: false,
+            app_icon: std::ptr::null_mut(),
+            app_icon_owned: false,
+            auto_paused: false,
+            balloon_counter: 0,
+            current_sort: SortOrder::PriceAsc,
+            filters_dirty: false,
+            hovered_button: None,
+        }
+    }
+}
+
+#[cfg(test)]
+impl TradeResult {
+    pub(crate) fn new_for_test(item: ParsedItem) -> Self {
+        Self {
+            item,
+            league: String::new(),
+            total: 0,
+            entries: Vec::new(),
+            summary: Vec::new(),
+            url: String::new(),
+            options: QueryOptions::default(),
+            page_size: 10,
+            value_tier: ItemValueTier::Unknown,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_item_with_mods(mod_count: usize) -> ParsedItem {
+    let mut item = ParsedItem::default();
+    for i in 0..mod_count {
+        item.mods.push(ParsedMod {
+            text: format!("词缀 {}", i + 1),
+            pattern: format!("mod_{}", i + 1),
+            value: Some((i + 1) as f64),
+            stat_id: None,
+            stat_text: None,
+        });
+    }
+    item
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -4956,6 +5022,16 @@ mod tests {
             Some(11),
             "should parse level 11, not 1123"
         );
+    }
+
+    #[test]
+    fn required_level_not_concatenated() {
+        // 确保不会回到拼接数字的行为
+        let text = "需求: 等级 11, 23 智慧\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.required_level, Some(11));
+        assert_ne!(item.required_level, Some(1123));
+        assert_ne!(item.required_level, Some(23));
     }
 
     #[test]
