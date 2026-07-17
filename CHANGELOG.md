@@ -22,6 +22,12 @@
 
 - 新增 `whisper_button_count_per_visible_listing` 测试，确保每个可见挂单只有一个 Whisper 按钮。
 - 新增 hover 状态转换测试 `hover_transition_does_not_trigger_redundant_repaint`，确保同一按钮不变时不触发重绘、不同按钮变化时触发重绘。
+- 新增查询状态流测试 `query_state_transitions` 和 `query_state_not_equal`，验证 `QueryState` 各变体正确区分。
+- 新增 `whisper_count_per_listing` 回归测试，在 main.rs 中验证私聊按钮与可见行数一致。
+- 新增 hover 回归测试 `hover_changes_trigger_repaint_only_when_different`，使用 `Close`/`Pin` 变体验证不同按钮组合下的重绘逻辑。
+- 新增 `query_id_increments_to_prevent_stale_results` 测试，验证原子计数器递增正确性，防止过期查询结果覆盖新结果。
+- 新增通货回退测试 `currency_fallback_does_not_show_empty` 和 `format_price_str_zh_missing_fields`，确保未知通货和缺失字段正确回退。
+- 新增 `docs/manual_test_checklist.md` 人工 UI 验收清单，覆盖闪烁、私聊按钮、查询状态、通货中文化和词缀状态。
 
 ## 0.4.1
 

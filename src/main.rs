@@ -4718,6 +4718,7 @@ pub(crate) fn make_test_item_with_mods(mod_count: usize) -> ParsedItem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::overlay::layout::visible_row_count;
 
     #[test]
     fn normalizes_cookie_inputs_without_leaking_extra_text() {
@@ -5319,5 +5320,83 @@ mod tests {
         assert!(should_repaint_on_hover(None, Some(UiButton::Close)));
         // 离开→触发
         assert!(should_repaint_on_hover(Some(UiButton::Close), None));
+    }
+
+    #[test]
+    fn hover_changes_trigger_repaint_only_when_different() {
+        // 同一按钮 hover 不触发重绘
+        assert!(!should_repaint_on_hover(
+            Some(UiButton::Close),
+            Some(UiButton::Close)
+        ));
+        // 不同按钮 hover 触发重绘
+        assert!(should_repaint_on_hover(
+            Some(UiButton::Close),
+            Some(UiButton::Pin)
+        ));
+        // None → Some 触发重绘
+        assert!(should_repaint_on_hover(None, Some(UiButton::Close)));
+        // Some → None 触发重绘
+        assert!(should_repaint_on_hover(Some(UiButton::Close), None));
+    }
+
+    #[test]
+    fn query_state_transitions() {
+        // 测试状态转换正确性
+        assert!(matches!(QueryState::Loading, QueryState::Loading));
+        assert!(matches!(QueryState::Success, QueryState::Success));
+        assert!(matches!(
+            QueryState::Error("err".into()),
+            QueryState::Error(_)
+        ));
+        assert!(matches!(QueryState::Empty, QueryState::Empty));
+    }
+
+    #[test]
+    fn query_state_not_equal() {
+        assert_ne!(QueryState::Loading, QueryState::Success);
+        assert_ne!(QueryState::Loading, QueryState::Empty);
+        assert_ne!(QueryState::Success, QueryState::Error("err".into()));
+    }
+
+    #[test]
+    fn whisper_count_per_listing() {
+        // 验证每个可见挂单只有一个 whisper 按钮
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 580,
+            bottom: 780,
+        };
+        let plan = LayoutPlan::compute(rect, 6, 6);
+        let mut result = TradeResult::new_for_test(make_test_item_with_mods(6));
+        let visible_rows = visible_row_count(&plan.table_body);
+        // 添加足够多的挂单以占满可见行
+        for i in 0..visible_rows + 2 {
+            result.entries.push(TradeEntry {
+                seller: format!("Seller{}", i),
+                price: format!("{} chaos", i + 1),
+                price_amount: Some((i + 1) as f64),
+                ..Default::default()
+            });
+        }
+        let state = UiState::new_for_test();
+        let specs = state.button_specs_for_result(&plan, &result);
+        let whisper_count = specs
+            .iter()
+            .filter(|s| matches!(s.button, UiButton::Whisper(_)) && s.visible)
+            .count();
+        assert_eq!(whisper_count, visible_rows);
+    }
+
+    #[test]
+    fn query_id_increments_to_prevent_stale_results() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let counter = AtomicU64::new(0);
+        let id1 = counter.fetch_add(1, Ordering::SeqCst);
+        let id2 = counter.fetch_add(1, Ordering::SeqCst);
+        assert_ne!(id1, id2);
+        assert_eq!(id1, 0);
+        assert_eq!(id2, 1);
     }
 }

@@ -193,4 +193,17 @@ mod tests {
     fn format_price_zh_fractional() {
         assert_eq!(format_price_zh(1.5, "divine"), "1.5 神圣石");
     }
+
+    #[test]
+    fn currency_fallback_does_not_show_empty() {
+        // 未知通货必须回退显示原始代码
+        assert_eq!(currency_zh_name("strange_orb"), "strange_orb");
+        assert!(!currency_zh_name("strange_orb").is_empty());
+    }
+
+    #[test]
+    fn format_price_str_zh_missing_fields() {
+        assert_eq!(format_price_str_zh(None, None), "-");
+        assert_eq!(format_price_str_zh(Some(1.0), None), "1.0");
+    }
 }
