@@ -17,6 +17,21 @@ function Assert-Ok {
     Write-Host "[ok] $Message"
 }
 
+# 仅通过本机 WebView2 API 检测 Runtime；验证过程不访问网络。
+function Test-WebView2Runtime {
+    param(
+        [string] $PackageDirectory
+    )
+    $coreAssemblyPath = Join-Path $PackageDirectory 'Microsoft.Web.WebView2.Core.dll'
+    try {
+        Add-Type -Path $coreAssemblyPath -ErrorAction Stop
+        $runtimeVersion = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::GetAvailableBrowserVersionString()
+        return -not [string]::IsNullOrWhiteSpace($runtimeVersion)
+    } catch {
+        return $false
+    }
+}
+
 # 等待 Windows GUI 子系统程序完成，避免 PowerShell 5.1 在产物落盘前继续执行。
 function Invoke-BridgeCommand {
     param(
@@ -161,6 +176,7 @@ $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
 Assert-Ok ($actualHash -eq $expectedHash) "sha256 matches zip"
 
 $webView2Version = '1.0.4078.44'
+$webView2RuntimeUrl = 'https://developer.microsoft.com/microsoft-edge/webview2/'
 $webView2LicenseHash = '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
 $webView2NoticeHash = '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
 $webView2LicensePath = Join-Path $packageDir 'licenses\Microsoft.Web.WebView2-LICENSE.txt'
@@ -174,6 +190,11 @@ Assert-Ok ($loginProjectText -match ('Microsoft\.Web\.WebView2" Version="\[' + [
 $loginLock = Get-Content -LiteralPath (Join-Path $rootPath 'login\QingPriceLogin\packages.lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $lockedVersions = @($loginLock.dependencies.PSObject.Properties | ForEach-Object { $_.Value.'Microsoft.Web.WebView2'.resolved } | Select-Object -Unique)
 Assert-Ok ($lockedVersions.Count -eq 1 -and $lockedVersions[0] -eq $webView2Version) "WebView2 lock file matches packaged licenses"
+if (Test-WebView2Runtime -PackageDirectory $packageDir) {
+    Write-Host '[ok] WebView2 Runtime is available on this verification host'
+} else {
+    Write-Host '[info] WebView2 Runtime is not installed on this verification host; package keeps the official install URL'
+}
 
 # 从 PE 头读取 Machine 字段，确保发布包没有混入 x86/ARM64 Loader。
 $loaderPath = Join-Path $packageDir 'WebView2Loader.dll'
@@ -199,6 +220,7 @@ Assert-Ok ($versionText -match "version:\s*$([regex]::Escape($version))") "VERSI
 Assert-Ok ($versionText -match 'start_here:\s*StartHere\.bat') "VERSION.txt lists start here"
 Assert-Ok ($versionText -match 'start_here_zh:\s*开始使用\.bat') "VERSION.txt lists Chinese start here"
 Assert-Ok ($versionText -match 'login_poc:\s*QingPriceLogin\.exe') "VERSION.txt lists login PoC"
+Assert-Ok ($versionText -match ('webview2_runtime:\s*' + [regex]::Escape($webView2RuntimeUrl))) "VERSION.txt lists Microsoft WebView2 Runtime official URL"
 Assert-Ok ($versionText -match 'control_center:\s*ControlCenter\.bat') "VERSION.txt lists control center"
 Assert-Ok ($versionText -match 'cookie_zh:\s*设置Cookie\.bat') "VERSION.txt lists Chinese cookie setup"
 Assert-Ok ($versionText -match 'history_zh:\s*查询历史\.bat') "VERSION.txt lists Chinese history"
@@ -301,7 +323,21 @@ Assert-Ok ($cookieGui -match 'finally\s*\{[\s\S]*Remove-Item -LiteralPath \$tmp'
 
 $firstRunWizard = Get-Content -LiteralPath (Join-Path $packageDir 'first_run_wizard.ps1') -Raw
 Assert-Ok ($firstRunWizard -match 'finally\s*\{[\s\S]*Remove-Item -LiteralPath \$tmp') "first-run wizard always removes plaintext temp file"
+Assert-Ok ($firstRunWizard -match 'QingPriceLogin\.exe') "first-run wizard invokes the login helper"
+Assert-Ok ($firstRunWizard -match '微信[\s\S]{0,24}扫码|扫码[\s\S]{0,24}微信') "first-run wizard presents verified WeChat login"
+Assert-Ok ($firstRunWizard -match '高级') "first-run wizard keeps manual Cookie as an advanced option"
+Assert-Ok ($firstRunWizard -match 'Runtime|运行环境|WebView2') "first-run wizard handles missing WebView2 Runtime"
+Assert-Ok ($firstRunWizard -notmatch '--bridge-exe|\$tradeHome|按 F12') "first-run wizard does not use an unbounded or F12 default flow"
 
+$setCookieGui = Get-Content -LiteralPath (Join-Path $packageDir 'set_cookie_gui.ps1') -Raw
+Assert-Ok ($setCookieGui -match 'QingPriceLogin\.exe') "Cookie GUI invokes the login helper"
+Assert-Ok ($setCookieGui -match '微信[\s\S]{0,24}扫码|扫码[\s\S]{0,24}微信') "Cookie GUI presents verified WeChat login"
+Assert-Ok ($setCookieGui -match '高级') "Cookie GUI keeps manual Cookie as an advanced option"
+Assert-Ok ($setCookieGui -notmatch '--bridge-exe|\$tradeHome|按 F12') "Cookie GUI does not use an unbounded or F12 default flow"
+$loginAppText = Get-Content -LiteralPath (Join-Path $rootPath 'login\QingPriceLogin\App.xaml.cs') -Raw -Encoding UTF8
+$loginWindowText = Get-Content -LiteralPath (Join-Path $rootPath 'login\QingPriceLogin\MainWindow.xaml.cs') -Raw -Encoding UTF8
+Assert-Ok ($loginAppText -notmatch '--bridge-exe') "login helper does not accept arbitrary bridge paths"
+Assert-Ok ($loginWindowText -match 'AppDomain\.CurrentDomain\.BaseDirectory[\s\S]{0,120}QingPricePOE2\.exe') "login helper uses same-directory bridge executable"
 $settingsGui = Get-Content -LiteralPath (Join-Path $packageDir 'settings_gui.ps1') -Raw
 Assert-Ok ($settingsGui -match 'Apply-DefaultsToForm') "settings can restore defaults"
 Assert-Ok ($settingsGui -match 'Save-SettingsFromForm') "settings validates before saving"

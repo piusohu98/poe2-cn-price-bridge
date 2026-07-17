@@ -30,7 +30,7 @@
 
 如果只想单独设置 Cookie，可以运行 `设置Cookie.bat`。窗口会自动识别剪贴板里的 POESESSID，保存后会自动验证 Cookie 是否可用。
 
-如果不知道在哪里复制 Cookie，可以在浏览器打开 `https://poe.game.qq.com/trade2` 后按 `F12`，到 `Application/应用 -> Cookies -> https://poe.game.qq.com`，复制 `POESESSID`。也可以复制完整 `Cookie: ...` 请求头。
+以上手动复制仅是“高级方式”备用流程；普通用户请使用首次向导中的微信扫码登录，无需打开 F12。若确需手动获取，可在浏览器打开 `https://poe.game.qq.com/trade2` 后按 `F12`，到 `Application/应用 -> Cookies -> https://poe.game.qq.com`，复制 `POESESSID`，也可以复制完整 `Cookie: ...` 请求头。
 
 需要手动确认 Cookie 是否仍可用时，运行 `ValidateCookie.bat`，或托盘右键选择 `验证 Cookie`。
 
@@ -184,3 +184,8 @@ Cookie 使用 Windows DPAPI 加密，只能由当前 Windows 用户解密。开�
 ## 说明
 
 本项目只调用国服官方 trade2 接口，不修改游戏进程，也不读写游戏内存。使用前请自行确认符合游戏和平台规则。
+
+## WebView2 Runtime
+
+登录助手不捆绑 WebView2 Runtime。若首次向导提示 Runtime 缺失，请仅使用微软官方安装入口：
+https://developer.microsoft.com/microsoft-edge/webview2/

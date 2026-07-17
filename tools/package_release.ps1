@@ -15,6 +15,8 @@ $webView2Version = '1.0.4078.44'
 $webView2LicenseRoot = Join-Path $rootPath "third_party\Microsoft.Web.WebView2\$webView2Version"
 $webView2LicenseHash = '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
 $webView2NoticeHash = '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
+# WebView2 Runtime 由用户单独安装；只保留微软官方入口，不在包内下载或捆绑 Runtime。
+$webView2RuntimeUrl = 'https://developer.microsoft.com/microsoft-edge/webview2/'
 
 & (Join-Path $PSScriptRoot 'make_icon.ps1') -Root $rootPath
 
@@ -98,6 +100,7 @@ control_center: ControlCenter.bat
 start: Start.bat / 启动查价.bat / QingPricePOE2.exe
 first_run: FirstRun.bat
 login_poc: QingPriceLogin.exe
+webview2_runtime: $webView2RuntimeUrl
 first_run_zh: 首次向导.bat
 settings: Settings.bat
 settings_zh: 常用设置.bat

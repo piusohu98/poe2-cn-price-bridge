@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Integration
+
+- 首次向导默认使用已验证的微信扫码登录助手；发布包校验登录助手、锁定依赖、第三方许可证及 WebView2 x64 Loader，并检查 Runtime 缺失时的微软官方安装入口。
+
 ### Added
 
 - 新增独立的 `QingPriceLogin.exe` 登录 PoC，使用 .NET Framework 4.8 WPF 和 `Microsoft.Web.WebView2` 1.0.4078.44。

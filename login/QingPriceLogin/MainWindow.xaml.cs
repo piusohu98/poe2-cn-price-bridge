@@ -21,13 +21,12 @@ namespace QingPriceLogin
         private CancellationTokenSource _validationCancellation;
         private bool _cleanupStarted;
         private bool _allowClose;
+        private int _exitCode = 2;
 
-        internal MainWindow(string bridgePath)
+        internal MainWindow()
         {
             InitializeComponent();
-            _bridgePath = string.IsNullOrWhiteSpace(bridgePath)
-                ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "QingPricePOE2.exe")
-                : Path.GetFullPath(bridgePath);
+            _bridgePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "QingPricePOE2.exe");
             _userDataFolder = LoginPolicy.CreateUserDataFolder();
             _cookieTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _cookieTimer.Tick += CookieTimer_Tick;
@@ -56,6 +55,7 @@ namespace QingPriceLogin
             }
             catch (WebView2RuntimeNotFoundException)
             {
+                _exitCode = 6;
                 StatusText.Text = "未检测到 Microsoft Edge WebView2 Runtime。";
                 var result = MessageBox.Show(
                     "此登录 PoC 需要 Microsoft Edge WebView2 Evergreen Runtime。是否打开微软官方下载页面？",
@@ -70,6 +70,7 @@ namespace QingPriceLogin
             }
             catch (Exception)
             {
+                _exitCode = 7;
                 StatusText.Text = "WebView2 初始化或安全配置失败。";
                 MessageBox.Show(
                     "登录窗口安全初始化失败。请升级 Microsoft Edge WebView2 Runtime 后重试；未记录异常详情或任何 Cookie。",
@@ -206,7 +207,7 @@ namespace QingPriceLogin
                 if (!File.Exists(_bridgePath))
                 {
                     StatusText.Text = "未找到 QingPricePOE2.exe，无法验证登录结果。";
-                    MessageBox.Show("请将登录助手与 QingPricePOE2.exe 放在同一目录，或使用 --bridge-exe 指定路径。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("请将登录助手与 QingPricePOE2.exe 放在同一目录。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
@@ -219,6 +220,7 @@ namespace QingPriceLogin
                     cancellation.Token);
                 if (result == BridgeResult.Accepted)
                 {
+                    _exitCode = 0;
                     StatusText.Text = "登录验证成功，POESESSID 已由主程序加密保存。";
                     MessageBox.Show("登录验证成功。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Information);
                     Close();
@@ -247,6 +249,7 @@ namespace QingPriceLogin
             }
             catch (Exception)
             {
+                _exitCode = 7;
                 StatusText.Text = "检查登录状态失败；未记录异常详情或任何 Cookie。";
             }
             finally
@@ -296,6 +299,7 @@ namespace QingPriceLogin
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
+            Environment.ExitCode = _exitCode;
             _allowClose = true;
             Close();
         }

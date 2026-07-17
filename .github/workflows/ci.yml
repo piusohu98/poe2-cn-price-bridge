@@ -34,8 +34,20 @@ jobs:
         shell: pwsh
         run: ./tools/build_login.ps1
 
+      - name: Ensure NuGet lock file is unchanged
+        shell: pwsh
+        run: git diff --exit-code -- login/QingPriceLogin/packages.lock.json
+
       - name: Test login PoC policy
         shell: pwsh
         run: |
           $process = Start-Process -FilePath ./login/QingPriceLogin/bin/Release/net48/QingPriceLogin.exe -ArgumentList --self-test -Wait -PassThru
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+      - name: Package release for integration checks
+        shell: pwsh
+        run: ./tools/package_release.ps1 -SkipBuild
+
+      - name: Verify release package and runtime prerequisites
+        shell: pwsh
+        run: ./tools/verify_release.ps1

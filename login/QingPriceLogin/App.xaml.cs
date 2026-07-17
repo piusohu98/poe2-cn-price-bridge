@@ -64,28 +64,12 @@ namespace QingPriceLogin
             catch (Exception)
             {
                 MessageBox.Show("启动前清理历史 WebView2 临时目录失败，已安全停止。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
-                Shutdown(6);
+                Shutdown(8);
                 return;
             }
 
-            string bridgePath = null;
-            for (var index = 0; index < e.Args.Length; index++)
-            {
-                if (!string.Equals(e.Args[index], "--bridge-exe", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (index + 1 >= e.Args.Length)
-                {
-                    MessageBox.Show("--bridge-exe 缺少路径。", "清价登录助手", MessageBoxButton.OK, MessageBoxImage.Error);
-                    Shutdown(2);
-                    return;
-                }
-                bridgePath = e.Args[index + 1];
-                index++;
-            }
+            var window = new MainWindow();
 
-            var window = new MainWindow(bridgePath);
             MainWindow = window;
             window.Show();
         }
