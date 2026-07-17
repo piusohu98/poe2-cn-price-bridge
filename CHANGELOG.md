@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1
+
 ### Changed
 
 - Overlay 窗口高度动态调整：根据物品详情行数、词缀数量和挂单条目数自动计算窗口高度，消除下半部分空白区域。最小高度 480px，最大不超过屏幕工作区 90%。分页步长与可见行数保持一致。
@@ -13,17 +15,19 @@
 - 普通物品提示信息：普通物品（无词缀）现在显示"普通物品没有可筛选词缀"，而非通用的"未识别到词缀"；有词缀但全部未识别时仍显示"未识别到词缀"；其他空词缀情况显示"未解析到词缀"。
 - 修复 Overlay 控件重叠问题：引入 `LayoutPlan` 结构体统一管理所有区域坐标，从上到下按顺序排列（标题栏→物品详情→词缀→筛选状态→筛选动作→价格摘要→表头→表体→底部），确保 Y 坐标不交叉。
 - 区分"可见按钮"和"纯点击热区"：`UiButtonSpec` 新增 `visible` 字段，`ModToggle`、`SortLevel`、`SortPrice`、`SortTime`、`Backdrop` 等热区标记为不可见，`paint_buttons` 只绘制可见按钮。
-- 新增 `Backdrop` 标题栏热区（不可见）和 `OpenTrade` 按钮变体。
+- 修复挂单排序、分页和私聊按钮之间的索引错位：引入 `visible_listing_indices` 统一函数，排序时保留原始索引，确保渲染表格和 Whisper 按钮引用同一原始条目；私聊复制优先使用服务端返回的 `whisper_text`。
+- 在线状态解析：支持 `account.online` 为对象（非空对象视为在线）和 `account.status` 字符串格式，修复部分 API 响应下在线状态无法正确识别的问题。
+- 上架时间显示：从日期格式改为相对时间（如"2分钟""3小时""5天"），使用 `relative_time_ago` 函数替代 `friendly_indexed_time`。
+- 表头排序：新增双向排序切换（点击同一表头在升序/降序间切换），等级和上架时间支持双向排序，排序箭头与当前排序方向一致。
+
+### Tests
+
 - 列布局计算统一为 `compute_column_layout()` 函数，渲染和按钮热区共用同一套列宽。
 - 新增布局不重叠测试 `layout_plan_rects_dont_overlap` 和 Y 坐标顺序测试 `layout_plan_rects_sequential_y`。
 - 新增布局测试 `layout_plan_works_for_different_widths`、`layout_plan_handles_zero_modifiers`、`layout_plan_handles_many_modifiers`，覆盖多窗口尺寸、零词缀和多词缀场景。
 - 新增可见性分离测试 `invisible_hit_regions_have_visible_false` 和 `visible_buttons_have_visible_true`，确保热区和可见按钮的 `visible` 字段正确。
 - 新增边界测试 `all_buttons_within_window_bounds`，覆盖多窗口尺寸组合下所有按钮不越界。
 - 新增需求等级回归测试 `required_level_not_concatenated`，防止多数字行错误拼接。
-- 修复挂单排序、分页和私聊按钮之间的索引错位：引入 `visible_listing_indices` 统一函数，排序时保留原始索引，确保渲染表格和 Whisper 按钮引用同一原始条目；私聊复制优先使用服务端返回的 `whisper_text`。
-- 在线状态解析：支持 `account.online` 为对象（非空对象视为在线）和 `account.status` 字符串格式，修复部分 API 响应下在线状态无法正确识别的问题。
-- 上架时间显示：从日期格式改为相对时间（如"2分钟""3小时""5天"），使用 `relative_time_ago` 函数替代 `friendly_indexed_time`。
-- 表头排序：新增双向排序切换（点击同一表头在升序/降序间切换），等级和上架时间支持双向排序，排序箭头与当前排序方向一致。
 
 ## 0.4.0
 
