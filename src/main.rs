@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unsafe_op_in_unsafe_fn)]
 
+mod overlay;
+
 use anyhow::{Context, Result, anyhow, bail};
 use arboard::Clipboard;
 use base64::Engine;
@@ -31,13 +33,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, LocalFree,
     POINT, RECT, WPARAM,
 };
-use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen, CreateSolidBrush,
-    DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_TOP,
-    DT_VCENTER, DT_WORDBREAK, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_BOLD, FW_NORMAL,
-    FillRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
-    RoundRect, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
-};
+use windows_sys::Win32::Graphics::Gdi::{HBRUSH, InvalidateRect};
 use windows_sys::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
@@ -61,10 +57,16 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
     ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
     WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_EXITSIZEMOVE,
-    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE,
-    WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
+    WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
+
+use crate::overlay::interaction::OverlayInteraction;
+use crate::overlay::layout;
+use crate::overlay::layout::OverlayLayout;
+use crate::overlay::model::{Fonts, OverlayEvent, OverlayView, UiButton, ViewKind, WindowPos};
+use crate::overlay::render::OverlayRenderer;
 
 const WINDOW_CLASS_NAME: &str = "Poe2CnPriceBridgeRustWindow";
 const APP_DISPLAY_NAME: &str = "流放2查价助手";
@@ -119,7 +121,7 @@ fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain(Some(0)).collect()
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> u32 {
+const fn rgb(r: u8, g: u8, b: u8) -> u32 {
     r as u32 | ((g as u32) << 8) | ((b as u32) << 16)
 }
 
@@ -168,37 +170,6 @@ unsafe fn load_app_icon(size: i32) -> (HICON, bool) {
         }
     }
     (LoadIconW(null_mut(), IDI_APPLICATION), false)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UiButton {
-    Pin,
-    Close,
-    Wizard,
-    Cookie,
-    ValidateCookie,
-    Diagnostics,
-    History,
-    Mods,
-    Values,
-    ModToggle(usize),
-    Prev,
-    Next,
-    Open,
-    Copy,
-    Whisper(usize),
-}
-
-struct UiButtonSpec {
-    button: UiButton,
-    label: String,
-    rect: RECT,
-    enabled: bool,
-    primary: bool,
-}
-
-fn rect_contains(rect: &RECT, x: i32, y: i32) -> bool {
-    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
 }
 
 fn last_win_error(prefix: &str) -> anyhow::Error {
@@ -344,12 +315,6 @@ fn unix_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
         .as_secs()
-}
-
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
-struct WindowPos {
-    x: i32,
-    y: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1425,6 +1390,24 @@ struct ParsedItem {
     query_mode: String,
     display: String,
     mods: Vec<ParsedMod>,
+    pub quality: Option<u32>,
+    pub required_level: Option<u32>,
+    pub physical_damage_min: Option<f64>,
+    pub physical_damage_max: Option<f64>,
+    pub fire_damage_min: Option<f64>,
+    pub fire_damage_max: Option<f64>,
+    pub cold_damage_min: Option<f64>,
+    pub cold_damage_max: Option<f64>,
+    pub lightning_damage_min: Option<f64>,
+    pub lightning_damage_max: Option<f64>,
+    pub chaos_damage_min: Option<f64>,
+    pub chaos_damage_max: Option<f64>,
+    pub critical_strike_chance: Option<f64>,
+    pub attacks_per_second: Option<f64>,
+    pub armour: Option<u32>,
+    pub evasion: Option<u32>,
+    pub energy_shield: Option<u32>,
+    pub sockets: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1448,15 +1431,241 @@ impl Default for ParsedItem {
             query_mode: "type".to_string(),
             display: String::new(),
             mods: Vec::new(),
+            quality: None,
+            required_level: None,
+            physical_damage_min: None,
+            physical_damage_max: None,
+            fire_damage_min: None,
+            fire_damage_max: None,
+            cold_damage_min: None,
+            cold_damage_max: None,
+            lightning_damage_min: None,
+            lightning_damage_max: None,
+            chaos_damage_min: None,
+            chaos_damage_max: None,
+            critical_strike_chance: None,
+            attacks_per_second: None,
+            armour: None,
+            evasion: None,
+            energy_shield: None,
+            sockets: None,
         }
     }
 }
 
+#[allow(dead_code)]
+impl ParsedItem {
+    /// 物理 DPS = (物理伤害下限 + 物理伤害上限) / 2 * 每秒攻击次数
+    pub fn physical_dps(&self) -> Option<f64> {
+        let min = self.physical_damage_min?;
+        let max = self.physical_damage_max?;
+        let aps = self.attacks_per_second?;
+        Some((min + max) / 2.0 * aps)
+    }
+
+    /// 元素 DPS = 所有元素伤害平均值之和 * 每秒攻击次数
+    pub fn elemental_dps(&self) -> Option<f64> {
+        let aps = self.attacks_per_second?;
+        let mut total = 0.0;
+        for (min, max) in &[
+            (self.fire_damage_min, self.fire_damage_max),
+            (self.cold_damage_min, self.cold_damage_max),
+            (self.lightning_damage_min, self.lightning_damage_max),
+            (self.chaos_damage_min, self.chaos_damage_max),
+        ] {
+            if let (Some(min), Some(max)) = (min, max) {
+                total += (min + max) / 2.0;
+            }
+        }
+        if total == 0.0 {
+            return None;
+        }
+        Some(total * aps)
+    }
+
+    /// 总 DPS = 物理 DPS + 元素 DPS
+    pub fn total_dps(&self) -> Option<f64> {
+        match (self.physical_dps(), self.elemental_dps()) {
+            (Some(p), Some(e)) => Some(p + e),
+            (Some(p), None) => Some(p),
+            (None, Some(e)) => Some(e),
+            (None, None) => None,
+        }
+    }
+
+    /// 是否为武器（有伤害范围或攻击速度的物品）
+    pub fn is_weapon(&self) -> bool {
+        self.physical_damage_min.is_some() || self.attacks_per_second.is_some()
+    }
+}
+
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct TradeEntry {
-    price: String,
-    seller: String,
-    item_name: String,
+    pub price: String,
+    pub seller: String,
+    pub item_name: String,
+    // 新增价格字段
+    pub price_amount: Option<f64>,
+    pub price_currency: Option<String>,
+    // 新增物品字段
+    pub base_type: Option<String>,
+    pub item_level: Option<u32>,
+    // 新增卖家字段
+    pub online: Option<bool>,
+    pub indexed_time: Option<String>,
+    // 私聊文本
+    pub whisper_text: Option<String>,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for TradeEntry {
+    fn default() -> Self {
+        Self {
+            price: String::new(),
+            seller: String::new(),
+            item_name: String::new(),
+            price_amount: None,
+            price_currency: None,
+            base_type: None,
+            item_level: None,
+            online: None,
+            indexed_time: None,
+            whisper_text: None,
+        }
+    }
+}
+
+/// 排序方式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum SortOrder {
+    PriceAsc,
+    PriceDesc,
+    ItemLevelDesc,
+    IndexedTimeAsc,
+    OnlineFirst,
+}
+
+#[allow(dead_code)]
+impl TradeEntry {
+    /// 按价格数值比较（处理 None 的情况，None 排在最后）
+    fn compare_price(a: &TradeEntry, b: &TradeEntry) -> std::cmp::Ordering {
+        match (a.price_amount, b.price_amount) {
+            (Some(pa), Some(pb)) => pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// 按物品等级比较
+    fn compare_item_level(a: &TradeEntry, b: &TradeEntry) -> std::cmp::Ordering {
+        match (a.item_level, b.item_level) {
+            (Some(la), Some(lb)) => lb.cmp(&la),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// 按上架时间比较（更新更靠前）
+    fn compare_indexed_time(a: &TradeEntry, b: &TradeEntry) -> std::cmp::Ordering {
+        match (&a.indexed_time, &b.indexed_time) {
+            (Some(ta), Some(tb)) => tb.cmp(ta),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// 在线优先
+    fn compare_online(a: &TradeEntry, b: &TradeEntry) -> std::cmp::Ordering {
+        match (a.online, b.online) {
+            (Some(true), Some(false)) => std::cmp::Ordering::Less,
+            (Some(false), Some(true)) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        }
+    }
+}
+
+/// 对挂单列表排序
+#[allow(dead_code)]
+pub(crate) fn sort_entries(entries: &mut [TradeEntry], order: SortOrder) {
+    match order {
+        SortOrder::PriceAsc => entries.sort_by(TradeEntry::compare_price),
+        SortOrder::PriceDesc => entries.sort_by(|a, b| TradeEntry::compare_price(b, a)),
+        SortOrder::ItemLevelDesc => entries.sort_by(TradeEntry::compare_item_level),
+        SortOrder::IndexedTimeAsc => entries.sort_by(TradeEntry::compare_indexed_time),
+        SortOrder::OnlineFirst => entries.sort_by(|a, b| {
+            TradeEntry::compare_online(a, b).then_with(|| TradeEntry::compare_price(a, b))
+        }),
+    }
+}
+
+/// 将 ISO 8601 时间字符串转换为易读文本
+#[allow(dead_code)]
+fn relative_time(iso_time: &str) -> String {
+    let cleaned = iso_time.replace('T', " ").replace('Z', "");
+    if let Some(dot_pos) = cleaned.find('.') {
+        cleaned[..dot_pos].to_string()
+    } else {
+        cleaned.chars().take(19).collect()
+    }
+}
+
+/// 将 indexed_time 转换为更易读的格式
+#[allow(dead_code)]
+pub(crate) fn friendly_indexed_time(iso_time: &str) -> String {
+    let date_part = relative_time(iso_time);
+    if date_part.len() >= 10 {
+        let today = chrono_like_date();
+        if date_part.starts_with(&today) && date_part.len() >= 16 {
+            return date_part[11..16].to_string();
+        }
+        if date_part.len() >= 10 {
+            return date_part[5..10].to_string();
+        }
+    }
+    date_part
+}
+
+#[allow(dead_code)]
+fn chrono_like_date() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let days_since_epoch = secs / 86400;
+    let mut y = 1970i64;
+    let mut d = days_since_epoch as i64;
+    loop {
+        let days_in_year = if is_leap(y) { 366 } else { 365 };
+        if d < days_in_year {
+            break;
+        }
+        d -= days_in_year;
+        y += 1;
+    }
+    let month_days = if is_leap(y) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut m = 0usize;
+    for (i, md) in month_days.iter().enumerate() {
+        if d < *md {
+            m = i + 1;
+            break;
+        }
+        d -= *md;
+    }
+    format!("{y:04}-{m:02}-{:02}", d + 1)
+}
+
+#[allow(dead_code)]
+fn is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1480,7 +1689,7 @@ struct TradeResult {
 }
 
 /// 物品价值等级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ItemValueTier {
     /// 神装 / 极高价值
     Legendary,
@@ -1493,6 +1702,7 @@ enum ItemValueTier {
     /// 低价值 / 垃圾
     Junk,
     /// 未估价 / 无法判断
+    #[default]
     Unknown,
 }
 
@@ -1519,12 +1729,6 @@ impl ItemValueTier {
             ItemValueTier::Junk => rgb(148, 163, 184),
             ItemValueTier::Unknown => rgb(156, 163, 175),
         }
-    }
-}
-
-impl Default for ItemValueTier {
-    fn default() -> Self {
-        ItemValueTier::Unknown
     }
 }
 
@@ -1774,7 +1978,11 @@ fn rule_matches(rule: &FilterRule, item: &ParsedItem, price_chaos: Option<f64>) 
 }
 
 /// 根据筛选规则评估物品价值等级
-fn evaluate_item_value(item: &ParsedItem, entries: &[TradeEntry], config: &FilterRulesConfig) -> ItemValueTier {
+fn evaluate_item_value(
+    item: &ParsedItem,
+    entries: &[TradeEntry],
+    config: &FilterRulesConfig,
+) -> ItemValueTier {
     if !config.enabled {
         return ItemValueTier::Unknown;
     }
@@ -1843,6 +2051,19 @@ fn first_number(text: &str) -> Option<f64> {
         current.parse::<f64>().ok()
     } else {
         None
+    }
+}
+
+fn parse_damage_range(line: &str) -> (Option<f64>, Option<f64>) {
+    // 从行中提取两个数字，如 "10-20" 或 "10~20"
+    let numbers: Vec<f64> = line
+        .split(|c: char| !c.is_ascii_digit() && c != '.')
+        .filter_map(|s| s.parse::<f64>().ok())
+        .collect();
+    if numbers.len() >= 2 {
+        (Some(numbers[0]), Some(numbers[1]))
+    } else {
+        (None, None)
     }
 }
 
@@ -1967,6 +2188,108 @@ fn parse_item_text(text: &str) -> ParsedItem {
                 .collect::<String>()
                 .parse::<u32>()
                 .ok();
+        }
+    }
+
+    // 解析物品属性（品质、伤害、防御、插槽等）
+    for line in &lines {
+        let lower = line.to_ascii_lowercase();
+
+        // 品质
+        if lower.contains("品质") || lower.contains("quality") {
+            if let Some(val) = first_number(line) {
+                parsed.quality = Some(val as u32);
+            }
+        }
+        // 需求等级
+        else if lower.starts_with("需求")
+            || lower.starts_with("需要等级")
+            || lower.starts_with("等级需求")
+            || lower.starts_with("requires level")
+        {
+            parsed.required_level = line
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+                .parse::<u32>()
+                .ok();
+        }
+        // 物理伤害 (不包含 "元素" 或 "火焰/冰霜/闪电/混沌")
+        else if (lower.contains("物理伤害") || lower.contains("physical damage"))
+            && !lower.contains("元素")
+        {
+            let (min, max) = parse_damage_range(line);
+            parsed.physical_damage_min = min;
+            parsed.physical_damage_max = max;
+        }
+        // 火焰伤害
+        else if lower.contains("火焰伤害") || lower.contains("fire damage") {
+            let (min, max) = parse_damage_range(line);
+            parsed.fire_damage_min = min;
+            parsed.fire_damage_max = max;
+        }
+        // 冰霜伤害
+        else if lower.contains("冰霜伤害") || lower.contains("cold damage") {
+            let (min, max) = parse_damage_range(line);
+            parsed.cold_damage_min = min;
+            parsed.cold_damage_max = max;
+        }
+        // 闪电伤害
+        else if lower.contains("闪电伤害") || lower.contains("lightning damage") {
+            let (min, max) = parse_damage_range(line);
+            parsed.lightning_damage_min = min;
+            parsed.lightning_damage_max = max;
+        }
+        // 混沌伤害
+        else if lower.contains("混沌伤害") || lower.contains("chaos damage") {
+            let (min, max) = parse_damage_range(line);
+            parsed.chaos_damage_min = min;
+            parsed.chaos_damage_max = max;
+        }
+        // 暴击率
+        else if lower.contains("暴击率") || lower.contains("critical strike chance") {
+            parsed.critical_strike_chance = first_number(line);
+        }
+        // 攻击速度
+        else if lower.contains("每秒攻击次数")
+            || lower.contains("攻击速度")
+            || lower.contains("attacks per second")
+        {
+            parsed.attacks_per_second = first_number(line);
+        }
+        // 护甲
+        else if lower.contains("护甲") || lower.contains("armour") || lower.contains("armor") {
+            parsed.armour = line
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+                .parse::<u32>()
+                .ok();
+        }
+        // 闪避
+        else if lower.contains("闪避") || lower.contains("evasion") {
+            parsed.evasion = line
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+                .parse::<u32>()
+                .ok();
+        }
+        // 能量护盾
+        else if lower.contains("能量护盾") || lower.contains("energy shield") {
+            parsed.energy_shield = line
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+                .parse::<u32>()
+                .ok();
+        }
+        // 插槽
+        else if lower.starts_with("插槽")
+            || lower.starts_with("孔")
+            || lower.starts_with("sockets")
+        {
+            parsed.sockets = Some(value_after_colon(line));
         }
     }
 
@@ -2465,22 +2788,23 @@ fn seller_text(listing: Option<&Value>) -> String {
 }
 
 fn summarize_entries(entries: &[TradeEntry]) -> Vec<String> {
-    let priced: Vec<String> = entries
+    let priced: Vec<&TradeEntry> = entries
         .iter()
-        .filter_map(|entry| {
-            if entry.price.is_empty() || entry.price == "未标价" {
-                None
-            } else {
-                Some(entry.price.clone())
-            }
-        })
+        .filter(|entry| !entry.price.is_empty() && entry.price != "未标价")
         .collect();
     if priced.is_empty() {
         return vec!["没有可读标价".to_string()];
     }
+
+    // 按价格数值排序
+    let mut sorted = priced.clone();
+    sorted.sort_by(|a, b| TradeEntry::compare_price(a, b));
+
+    let min_price = &sorted[0].price;
+
     let mut counts: HashMap<String, usize> = HashMap::new();
-    for price in &priced {
-        *counts.entry(price.clone()).or_insert(0) += 1;
+    for entry in &sorted {
+        *counts.entry(entry.price.clone()).or_insert(0) += 1;
     }
     let mut common: Vec<(String, usize)> = counts.into_iter().collect();
     common.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -2490,7 +2814,7 @@ fn summarize_entries(entries: &[TradeEntry]) -> Vec<String> {
         .map(|(price, count)| format!("{price} x{count}"))
         .collect::<Vec<_>>()
         .join(" / ");
-    vec![format!("最低: {}", priced[0]), format!("分布: {dist}")]
+    vec![format!("最低: {min_price}"), format!("分布: {dist}")]
 }
 
 fn direct_trade_search(
@@ -2569,7 +2893,13 @@ fn direct_trade_search(
             if !result_ids.is_empty() {
                 let mut fetch_failures = Vec::new();
                 for chunk in result_ids.chunks(settings.fetch_batch_size) {
-                    match request_json_with_cookie(client, &fetch_url(chunk, &query_id), Method::GET, None, &cookie) {
+                    match request_json_with_cookie(
+                        client,
+                        &fetch_url(chunk, &query_id),
+                        Method::GET,
+                        None,
+                        &cookie,
+                    ) {
                         Ok(fetch_data) => {
                             if !fetch_data.get("error").unwrap_or(&Value::Null).is_null() {
                                 let message = fetch_data
@@ -2586,14 +2916,95 @@ fn direct_trade_search(
                             {
                                 for row in results {
                                     let listing = row.get("listing");
-                                    let price =
-                                        price_text(listing.and_then(|item| item.get("price")));
+                                    let item = row.get("item");
+
+                                    // 价格解析
+                                    let price = price_text(listing.and_then(|l| l.get("price")));
+                                    let price_amount = listing
+                                        .and_then(|l| l.get("price"))
+                                        .and_then(|p| p.get("amount"))
+                                        .or_else(|| {
+                                            listing
+                                                .and_then(|l| l.get("price"))
+                                                .and_then(|p| p.get("value"))
+                                        })
+                                        .and_then(|v| {
+                                            v.as_f64().or_else(|| {
+                                                v.as_str().and_then(|s| s.parse::<f64>().ok())
+                                            })
+                                        });
+                                    let price_currency = listing
+                                        .and_then(|l| l.get("price"))
+                                        .and_then(|p| p.get("currency"))
+                                        .or_else(|| {
+                                            listing
+                                                .and_then(|l| l.get("price"))
+                                                .and_then(|p| p.get("type"))
+                                        })
+                                        .and_then(|v| v.as_str().map(String::from));
+
+                                    // 卖家解析
                                     let seller = seller_text(listing);
-                                    let item_name = item_text(row.get("item"));
+
+                                    // 物品名称
+                                    let item_name = item_text(item);
+
+                                    // 基底类型
+                                    let base_type = item
+                                        .and_then(|i| i.get("typeLine"))
+                                        .or_else(|| item.and_then(|i| i.get("baseType")))
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from);
+
+                                    // 物品等级
+                                    let item_level = item
+                                        .and_then(|i| i.get("ilvl"))
+                                        .or_else(|| item.and_then(|i| i.get("itemLevel")))
+                                        .and_then(|v| v.as_u64().map(|n| n as u32));
+
+                                    // 在线状态
+                                    let online = listing
+                                        .and_then(|l| l.get("online"))
+                                        .or_else(|| {
+                                            listing
+                                                .and_then(|l| l.get("account"))
+                                                .and_then(|a| a.get("online"))
+                                        })
+                                        .and_then(|v| v.as_bool())
+                                        .or_else(|| {
+                                            listing
+                                                .and_then(|l| l.get("account"))
+                                                .and_then(|a| a.get("status"))
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s == "online")
+                                        });
+
+                                    // 上架时间
+                                    let indexed_time = listing
+                                        .and_then(|l| l.get("indexed"))
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from);
+
+                                    // 私聊文本
+                                    let whisper_text = listing
+                                        .and_then(|l| l.get("whisper"))
+                                        .or_else(|| {
+                                            listing.and_then(|l| l.get("whisper_tokenized"))
+                                        })
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from);
+
                                     entries.push(TradeEntry {
                                         price,
                                         seller,
                                         item_name,
+                                        price_amount,
+                                        price_currency,
+                                        base_type,
+                                        item_level,
+                                        online,
+                                        indexed_time,
+                                        whisper_text,
                                     });
                                 }
                             } else {
@@ -2651,139 +3062,38 @@ fn direct_trade_search(
 }
 
 #[derive(Debug)]
-enum OverlayEvent {
-    Message {
-        title: String,
-        lines: Vec<String>,
-        accent: u32,
-        timeout: Duration,
-    },
-    Result {
-        result: Box<TradeResult>,
-        accent: u32,
-        timeout: Duration,
-    },
-}
-
-#[derive(Debug)]
 enum Action {
     Price,
     OpenHome,
     Quit,
 }
 
-#[derive(Clone)]
-enum ViewKind {
-    Message(Vec<String>),
-    Result(Box<TradeResult>),
-}
-
-#[derive(Clone)]
-struct OverlayView {
-    title: String,
-    subtitle: String,
-    status: String,
-    current_url: String,
-    accent: u32,
-    kind: ViewKind,
-}
-
-struct MetricCard<'a> {
-    x: i32,
-    y: i32,
-    w: i32,
-    label: &'a str,
-    value: &'a str,
-    color: u32,
-}
-
-impl Default for OverlayView {
-    fn default() -> Self {
-        Self {
-            title: APP_DISPLAY_NAME.to_string(),
-            subtitle: "Ctrl+C 自动查价".to_string(),
-            status: String::new(),
-            current_url: String::new(),
-            accent: rgb(56, 189, 248),
-            kind: ViewKind::Message(vec![
-                "游戏内 Ctrl+C 后自动查价。".to_string(),
-                "首次使用请先在托盘右键设置 Cookie。".to_string(),
-            ]),
-        }
-    }
-}
-
-struct Fonts {
-    title: HFONT,
-    normal: HFONT,
-    small: HFONT,
-    bold: HFONT,
-}
-
-impl Fonts {
-    unsafe fn new() -> Self {
-        Self {
-            title: make_font(19, FW_BOLD as i32),
-            normal: make_font(15, FW_NORMAL as i32),
-            small: make_font(13, FW_NORMAL as i32),
-            bold: make_font(15, FW_BOLD as i32),
-        }
-    }
-}
-
-impl Drop for Fonts {
-    fn drop(&mut self) {
-        unsafe {
-            DeleteObject(self.title as _);
-            DeleteObject(self.normal as _);
-            DeleteObject(self.small as _);
-            DeleteObject(self.bold as _);
-        }
-    }
-}
-
-unsafe fn make_font(size: i32, weight: i32) -> HFONT {
-    let face = wide("Microsoft YaHei UI");
-    CreateFontW(
-        -size,
-        0,
-        0,
-        0,
-        weight,
-        0,
-        0,
-        0,
-        DEFAULT_CHARSET as u32,
-        OUT_DEFAULT_PRECIS as u32,
-        CLIP_DEFAULT_PRECIS as u32,
-        CLEARTYPE_QUALITY as u32,
-        (DEFAULT_PITCH | FF_DONTCARE) as u32,
-        face.as_ptr(),
-    )
-}
-
-struct UiState {
-    hwnd: HWND,
-    event_tx: Sender<OverlayEvent>,
-    event_rx: Receiver<OverlayEvent>,
-    action_rx: Receiver<Action>,
-    view: OverlayView,
-    fonts: Fonts,
-    pinned: bool,
-    hide_deadline: Option<Instant>,
-    overlay_pos: Option<WindowPos>,
-    page: usize,
-    query_options: QueryOptions,
-    last_clipboard_text: String,
-    last_clipboard_check: Instant,
-    last_settings_reload: Instant,
-    settings: AppSettings,
-    registered_manual_hotkey: Option<String>,
-    tray_added: bool,
-    app_icon: HICON,
-    app_icon_owned: bool,
-    auto_paused: bool,
-    balloon_counter: u64,
+pub(crate) struct UiState {
+    pub(crate) hwnd: HWND,
+    pub(crate) event_tx: Sender<OverlayEvent>,
+    pub(crate) event_rx: Receiver<OverlayEvent>,
+    pub(crate) action_rx: Receiver<Action>,
+    pub(crate) view: OverlayView,
+    pub(crate) fonts: Fonts,
+    pub(crate) pinned: bool,
+    pub(crate) hide_deadline: Option<Instant>,
+    pub(crate) overlay_pos: Option<WindowPos>,
+    pub(crate) page: usize,
+    pub(crate) query_options: QueryOptions,
+    pub(crate) last_clipboard_text: String,
+    pub(crate) last_clipboard_check: Instant,
+    pub(crate) last_settings_reload: Instant,
+    pub(crate) settings: AppSettings,
+    pub(crate) registered_manual_hotkey: Option<String>,
+    pub(crate) tray_added: bool,
+    pub(crate) app_icon: HICON,
+    pub(crate) app_icon_owned: bool,
+    pub(crate) auto_paused: bool,
+    pub(crate) balloon_counter: u64,
+    pub(crate) current_sort: SortOrder,
+    #[allow(dead_code)]
+    pub(crate) filters_dirty: bool,
+    pub(crate) hovered_button: Option<UiButton>,
 }
 
 impl UiState {
@@ -2814,6 +3124,9 @@ impl UiState {
             app_icon_owned: false,
             auto_paused: false,
             balloon_counter: 0,
+            current_sort: SortOrder::PriceAsc,
+            filters_dirty: false,
+            hovered_button: None,
         }
     }
 
@@ -2907,10 +3220,18 @@ impl UiState {
         let labels = [
             wide("打开面板"),
             wide("立即查价"),
-            wide(if self.auto_paused { "恢复自动查价" } else { "暂停自动查价" }),
+            wide(if self.auto_paused {
+                "恢复自动查价"
+            } else {
+                "暂停自动查价"
+            }),
             wide("首次使用向导"),
             wide("设置"),
-            wide(if self.settings.primary_league == "永久" { "切换联赛: 奥杜尔秘符" } else { "切换联赛: 永久" }),
+            wide(if self.settings.primary_league == "永久" {
+                "切换联赛: 奥杜尔秘符"
+            } else {
+                "切换联赛: 永久"
+            }),
             wide("设置 Cookie"),
             wide("验证 Cookie"),
             wide("查询历史"),
@@ -3024,7 +3345,7 @@ impl UiState {
                     accent,
                     kind: ViewKind::Message(lines),
                 };
-                self.show_panel(720, 250, timeout);
+                self.show_panel(580, 360, timeout);
             }
             OverlayEvent::Result {
                 result,
@@ -3070,10 +3391,10 @@ impl UiState {
                     kind: ViewKind::Result(result),
                 };
                 let height = match &self.view.kind {
-                    ViewKind::Result(result) if result.entries.is_empty() => 360,
-                    _ => 500,
+                    ViewKind::Result(result) if result.entries.is_empty() => 480,
+                    _ => 780,
                 };
-                self.show_panel(760, height, timeout);
+                self.show_panel(580, height, timeout);
                 // 查询成功时显示托盘气泡通知
                 self.show_tray_balloon(
                     "查价完成",
@@ -3170,479 +3491,6 @@ impl UiState {
                 self.refresh_manual_hotkey();
             }
         }
-    }
-
-    unsafe fn toggle_pin(&mut self) {
-        self.pinned = !self.pinned;
-        self.hide_deadline = None;
-        InvalidateRect(self.hwnd, null(), 1);
-    }
-
-    unsafe fn copy_url(&mut self) {
-        if self.view.current_url.is_empty() {
-            self.view.status = "没有可复制的市集链接".to_string();
-        } else {
-            match copy_text_to_clipboard(&self.view.current_url) {
-                Ok(_) => self.view.status = "已复制市集链接".to_string(),
-                Err(err) => self.view.status = format!("复制失败: {err}"),
-            }
-        }
-        InvalidateRect(self.hwnd, null(), 1);
-    }
-
-    /// 复制私聊消息到剪贴板，index 为原始 entries 中的行索引
-    unsafe fn copy_whisper_for_row(&mut self, row_index: usize) {
-        let Some(result) = self.current_result() else {
-            self.view.status = "没有可复制的查询结果".to_string();
-            InvalidateRect(self.hwnd, null(), 1);
-            return;
-        };
-        let Some(entry) = result.entries.get(row_index) else {
-            self.view.status = format!("行索引 {row_index} 无效");
-            InvalidateRect(self.hwnd, null(), 1);
-            return;
-        };
-        let message = format!(
-            "@{} Hi, I'd like to buy your {} listed for {} in {}",
-            entry.seller, entry.item_name, entry.price, result.league
-        );
-        match copy_text_to_clipboard(&message) {
-            Ok(_) => {
-                self.view.status = format!("已复制 whisper 消息: @{}", entry.seller);
-            }
-            Err(err) => self.view.status = format!("复制失败: {err}"),
-        }
-        InvalidateRect(self.hwnd, null(), 1);
-    }
-
-    fn current_result(&self) -> Option<&TradeResult> {
-        match &self.view.kind {
-            ViewKind::Result(result) => Some(result.as_ref()),
-            ViewKind::Message(_) => None,
-        }
-    }
-
-    unsafe fn rerun_current_query(&mut self) {
-        let Some(result) = self.current_result() else {
-            return;
-        };
-        let parsed = result.item.clone();
-        let options = self.query_options.clone();
-        self.view.status = "正在按新筛选重新查询...".to_string();
-        InvalidateRect(self.hwnd, null(), 1);
-        start_price_query_from_parsed(parsed, options, self.event_tx.clone());
-    }
-
-    unsafe fn toggle_mod_filters(&mut self) {
-        if self.current_result().is_none() {
-            return;
-        }
-        self.query_options.use_mods = !self.query_options.use_mods;
-        self.query_options.selected_mod_patterns = None;
-        if !self.query_options.use_mods {
-            self.query_options.use_values = false;
-        }
-        self.rerun_current_query();
-    }
-
-    unsafe fn toggle_value_filters(&mut self) {
-        if self.current_result().is_none() {
-            return;
-        }
-        self.query_options.use_mods = true;
-        self.query_options.use_values = !self.query_options.use_values;
-        self.rerun_current_query();
-    }
-
-    unsafe fn toggle_single_mod(&mut self, index: usize) {
-        let Some(result) = self.current_result() else {
-            return;
-        };
-        let patterns = result
-            .item
-            .mods
-            .iter()
-            .map(|item_mod| item_mod.pattern.clone())
-            .collect::<Vec<_>>();
-        let Some(pattern) = patterns.get(index).cloned() else {
-            return;
-        };
-
-        let mut selected = self
-            .query_options
-            .selected_mod_patterns
-            .clone()
-            .unwrap_or_else(|| patterns.clone());
-        if let Some(position) = selected.iter().position(|value| value == &pattern) {
-            if selected.len() <= 1 {
-                self.view.status = "至少保留一个属性筛选".to_string();
-                InvalidateRect(self.hwnd, null(), 1);
-                return;
-            }
-            selected.remove(position);
-        } else {
-            selected.push(pattern);
-        }
-
-        self.query_options.use_mods = true;
-        self.query_options.selected_mod_patterns = Some(selected);
-        self.rerun_current_query();
-    }
-
-    unsafe fn page_prev(&mut self) {
-        if self.page > 0 {
-            self.page -= 1;
-            InvalidateRect(self.hwnd, null(), 1);
-        }
-    }
-
-    unsafe fn page_next(&mut self) {
-        let Some(result) = self.current_result() else {
-            return;
-        };
-        if (self.page + 1) * result.page_size < result.entries.len() {
-            self.page += 1;
-            InvalidateRect(self.hwnd, null(), 1);
-        }
-    }
-
-    fn is_mod_selected(&self, item_mod: &ParsedMod) -> bool {
-        if !self.query_options.use_mods {
-            return false;
-        }
-        self.query_options
-            .selected_mod_patterns
-            .as_ref()
-            .map(|patterns| patterns.iter().any(|pattern| pattern == &item_mod.pattern))
-            .unwrap_or(true)
-    }
-
-    fn mod_chip_label(index: usize, item_mod: &ParsedMod) -> String {
-        let label = item_mod
-            .stat_text
-            .as_deref()
-            .unwrap_or(item_mod.text.as_str());
-        format!("属性{} {}", index + 1, label)
-    }
-
-    fn button_specs(&self, rect: RECT) -> Vec<UiButtonSpec> {
-        let result = self.current_result();
-        let has_url = !self.view.current_url.is_empty();
-        let has_mods = result
-            .map(|result| !result.item.mods.is_empty())
-            .unwrap_or(false);
-        let can_prev = self.page > 0;
-        let can_next = result
-            .map(|result| (self.page + 1) * result.page_size < result.entries.len())
-            .unwrap_or(false);
-
-        let mut specs = vec![
-            UiButtonSpec {
-                button: UiButton::Pin,
-                label: (if self.pinned { "已固定" } else { "固定" }).to_string(),
-                rect: RECT {
-                    left: rect.right - 150,
-                    top: 14,
-                    right: rect.right - 92,
-                    bottom: 42,
-                },
-                enabled: true,
-                primary: false,
-            },
-            UiButtonSpec {
-                button: UiButton::Close,
-                label: "关闭".to_string(),
-                rect: RECT {
-                    left: rect.right - 84,
-                    top: 14,
-                    right: rect.right - 26,
-                    bottom: 42,
-                },
-                enabled: true,
-                primary: false,
-            },
-        ];
-
-        if matches!(self.view.kind, ViewKind::Message(_)) {
-            specs.extend([
-                UiButtonSpec {
-                    button: UiButton::Wizard,
-                    label: "向导".to_string(),
-                    rect: RECT {
-                        left: 16,
-                        top: rect.bottom - 44,
-                        right: 96,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Cookie,
-                    label: "设置Cookie".to_string(),
-                    rect: RECT {
-                        left: 104,
-                        top: rect.bottom - 44,
-                        right: 200,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: true,
-                },
-                UiButtonSpec {
-                    button: UiButton::ValidateCookie,
-                    label: "验证Cookie".to_string(),
-                    rect: RECT {
-                        left: 208,
-                        top: rect.bottom - 44,
-                        right: 304,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Open,
-                    label: "打开官网".to_string(),
-                    rect: RECT {
-                        left: 312,
-                        top: rect.bottom - 44,
-                        right: 408,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::History,
-                    label: "历史".to_string(),
-                    rect: RECT {
-                        left: 416,
-                        top: rect.bottom - 44,
-                        right: 496,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Diagnostics,
-                    label: "诊断".to_string(),
-                    rect: RECT {
-                        left: 504,
-                        top: rect.bottom - 44,
-                        right: 584,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-            ]);
-        } else {
-            if let Some(result) = result {
-                let chip_count = min(4, result.item.mods.len());
-                if chip_count > 0 {
-                    let chip_gap = 8;
-                    let chip_w =
-                        (rect.right - 40 - chip_gap * (chip_count as i32 - 1)) / chip_count as i32;
-                    for (index, item_mod) in result.item.mods.iter().take(chip_count).enumerate() {
-                        let left = 20 + index as i32 * (chip_w + chip_gap);
-                        specs.push(UiButtonSpec {
-                            button: UiButton::ModToggle(index),
-                            label: Self::mod_chip_label(index, item_mod),
-                            rect: RECT {
-                                left,
-                                top: 176,
-                                right: left + chip_w,
-                                bottom: 202,
-                            },
-                            enabled: true,
-                            primary: self.is_mod_selected(item_mod),
-                        });
-                    }
-                }
-                // 每行的私聊W按钮
-                let page_size = result.page_size.max(1);
-                let pages = max(1, result.entries.len().div_ceil(page_size));
-                let page = min(self.page, pages - 1);
-                let visible_start = page * page_size;
-                let visible_entries = result
-                    .entries
-                    .iter()
-                    .skip(visible_start)
-                    .take(page_size);
-                for (idx, _entry) in visible_entries.enumerate() {
-                    let row_top = 210 + 28 + idx as i32 * 27;
-                    let entry_index = visible_start + idx;
-                    specs.push(UiButtonSpec {
-                        button: UiButton::Whisper(entry_index),
-                        label: "W".to_string(),
-                        rect: RECT {
-                            left: rect.right - 70,
-                            top: row_top + 6,
-                            right: rect.right - 32,
-                            bottom: row_top + 22,
-                        },
-                        enabled: true,
-                        primary: false,
-                    });
-                }
-            }
-            specs.extend([
-                UiButtonSpec {
-                    button: UiButton::Mods,
-                    label: (if self.query_options.use_mods {
-                        "同属性开"
-                    } else {
-                        "同属性"
-                    })
-                    .to_string(),
-                    rect: RECT {
-                        left: 16,
-                        top: rect.bottom - 44,
-                        right: 112,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: has_mods,
-                    primary: self.query_options.use_mods,
-                },
-                UiButtonSpec {
-                    button: UiButton::Values,
-                    label: (if self.query_options.use_values {
-                        "数值开"
-                    } else {
-                        "数值"
-                    })
-                    .to_string(),
-                    rect: RECT {
-                        left: 120,
-                        top: rect.bottom - 44,
-                        right: 216,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: has_mods,
-                    primary: self.query_options.use_values,
-                },
-                UiButtonSpec {
-                    button: UiButton::Prev,
-                    label: "上一页".to_string(),
-                    rect: RECT {
-                        left: 224,
-                        top: rect.bottom - 44,
-                        right: 304,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: can_prev,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Next,
-                    label: "下一页".to_string(),
-                    rect: RECT {
-                        left: 312,
-                        top: rect.bottom - 44,
-                        right: 392,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: can_next,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Open,
-                    label: "打开市集".to_string(),
-                    rect: RECT {
-                        left: 400,
-                        top: rect.bottom - 44,
-                        right: 496,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: true,
-                    primary: false,
-                },
-                UiButtonSpec {
-                    button: UiButton::Copy,
-                    label: "复制链接".to_string(),
-                    rect: RECT {
-                        left: 504,
-                        top: rect.bottom - 44,
-                        right: 600,
-                        bottom: rect.bottom - 14,
-                    },
-                    enabled: has_url,
-                    primary: false,
-                },
-            ]);
-        }
-        specs
-    }
-
-    unsafe fn handle_button_click(&mut self, x: i32, y: i32) -> bool {
-        self.touch_activity();
-        let mut rect = RECT::default();
-        GetClientRect(self.hwnd, &mut rect);
-        for spec in self.button_specs(rect) {
-            if !rect_contains(&spec.rect, x, y) {
-                continue;
-            }
-            if !spec.enabled {
-                self.view.status = "这个操作当前不可用".to_string();
-                InvalidateRect(self.hwnd, null(), 1);
-                return true;
-            }
-            match spec.button {
-                UiButton::Pin => self.toggle_pin(),
-                UiButton::Close => {
-                    ShowWindow(self.hwnd, SW_HIDE);
-                }
-                UiButton::Wizard => self.open_first_run_wizard(),
-                UiButton::Cookie => self.open_cookie_setup(),
-                UiButton::ValidateCookie => start_cookie_validation(self.event_tx.clone()),
-                UiButton::Diagnostics => self.export_diagnostics(),
-                UiButton::History => self.open_history(),
-                UiButton::Mods => self.toggle_mod_filters(),
-                UiButton::Values => self.toggle_value_filters(),
-                UiButton::ModToggle(index) => self.toggle_single_mod(index),
-                UiButton::Prev => self.page_prev(),
-                UiButton::Next => self.page_next(),
-                UiButton::Open => self.open_current_url(),
-                UiButton::Copy => self.copy_url(),
-                UiButton::Whisper(index) => self.copy_whisper_for_row(index),
-            }
-            return true;
-        }
-        false
-    }
-
-    /// 用户交互时刷新自动隐藏倒计时
-    unsafe fn touch_activity(&mut self) {
-        if !self.pinned {
-            self.hide_deadline = Some(Instant::now() + Duration::from_secs(15));
-        }
-    }
-
-    /// 键盘快捷键处理，返回 true 表示已处理
-    unsafe fn handle_key_down(&mut self, vk_code: u32) -> bool {
-        self.touch_activity();
-        let has_result = self.current_result().is_some();
-        match vk_code {
-            0x25 => { if has_result { self.page_prev(); } else { return false; } } // ← 上一页
-            0x27 => { if has_result { self.page_next(); } else { return false; } } // → 下一页
-            0x4D => { if has_result { self.toggle_mod_filters(); } else { return false; } } // M 同属性
-            0x56 => { if has_result { self.toggle_value_filters(); } else { return false; } } // V 数值
-            0x50 => { self.toggle_pin(); } // P 固定
-            0x43 => { if has_result { self.copy_url(); } else { return false; } } // C 复制链接
-            0x4F => { self.open_current_url(); } // O 打开市集
-            0x31..=0x34 => { // 1-4 切换属性chip
-                if has_result {
-                    let index = (vk_code - 0x31) as usize;
-                    self.toggle_single_mod(index);
-                } else { return false; }
-            }
-            0x1B => { ShowWindow(self.hwnd, SW_HIDE); } // Esc 关闭
-            _ => return false,
-        }
-        InvalidateRect(self.hwnd, null(), 1);
-        true
     }
 
     unsafe fn open_current_url(&self) {
@@ -3745,7 +3593,7 @@ impl UiState {
                 "遇到问题先运行自检，再把 selfcheck.txt 发给维护者。".to_string(),
             ]),
         };
-        self.show_panel(720, 250, Duration::from_secs(18));
+        self.show_panel(580, 360, Duration::from_secs(18));
     }
 
     unsafe fn save_position(&mut self) {
@@ -3763,529 +3611,6 @@ impl UiState {
             eprintln!("保存面板位置失败: {err}");
         }
     }
-
-    unsafe fn paint(&self) {
-        let mut ps = MaybeUninit::<PAINTSTRUCT>::zeroed().assume_init();
-        let hdc = BeginPaint(self.hwnd, &mut ps);
-        let mut rect = RECT::default();
-        GetClientRect(self.hwnd, &mut rect);
-
-        fill(hdc, rect, rgb(12, 13, 16));
-        fill(
-            hdc,
-            RECT {
-                left: 0,
-                top: 0,
-                right: rect.right,
-                bottom: 64,
-            },
-            rgb(18, 20, 24),
-        );
-        fill(
-            hdc,
-            RECT {
-                left: 0,
-                top: 0,
-                right: 5,
-                bottom: rect.bottom,
-            },
-            self.view.accent,
-        );
-
-        draw_text(
-            hdc,
-            &self.view.title,
-            RECT {
-                left: 16,
-                top: 9,
-                right: rect.right - 170,
-                bottom: 34,
-            },
-            self.view.accent,
-            self.fonts.title,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-        draw_text(
-            hdc,
-            &self.view.subtitle,
-            RECT {
-                left: 16,
-                top: 36,
-                right: rect.right - 170,
-                bottom: 58,
-            },
-            rgb(148, 163, 184),
-            self.fonts.small,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-
-        match &self.view.kind {
-            ViewKind::Message(lines) => self.paint_message(hdc, rect, lines),
-            ViewKind::Result(result) => {
-                self.paint_value_tier_badge(hdc, rect, result.value_tier);
-                self.paint_result(hdc, rect, result);
-            }
-        }
-
-        self.paint_buttons(hdc, rect);
-
-        let status = if self.view.status.is_empty() {
-            if self.pinned {
-                "面板已固定".to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            self.view.status.clone()
-        };
-        draw_text(
-            hdc,
-            &status,
-            RECT {
-                left: 612,
-                top: rect.bottom - 40,
-                right: rect.right - 16,
-                bottom: rect.bottom - 12,
-            },
-            rgb(148, 163, 184),
-            self.fonts.small,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-        // 快捷键提示：放在底部按钮上方，避免与按钮重叠
-        draw_text(
-            hdc,
-            "快捷键: ←→ 翻页  M 切换属性  V 数值  P 固定  C 复制  O 市集  Esc 关闭",
-            RECT {
-                left: 16,
-                top: rect.bottom - 66,
-                right: rect.right - 16,
-                bottom: rect.bottom - 48,
-            },
-            rgb(100, 116, 139),
-            self.fonts.small,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-
-        EndPaint(self.hwnd, &ps);
-    }
-
-    unsafe fn paint_value_tier_badge(&self, hdc: HDC, rect: RECT, tier: ItemValueTier) {
-        let label = tier.label();
-        let color = tier.color();
-        let badge_w = 120;
-        let badge_h = 28;
-        let badge_rect = RECT {
-            left: rect.right - badge_w - 16,
-            top: 18,
-            right: rect.right - 16,
-            bottom: 18 + badge_h,
-        };
-        rounded_rect(hdc, badge_rect, rgb(22, 26, 32), color, 8);
-        draw_text(
-            hdc,
-            label,
-            RECT {
-                left: badge_rect.left + 8,
-                top: badge_rect.top,
-                right: badge_rect.right - 8,
-                bottom: badge_rect.bottom,
-            },
-            color,
-            self.fonts.small,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-        );
-    }
-
-    unsafe fn paint_message(&self, hdc: HDC, rect: RECT, lines: &[String]) {
-        let mut y = 82;
-        for line in lines.iter().take(4) {
-            draw_text(
-                hdc,
-                line,
-                RECT {
-                    left: 20,
-                    top: y,
-                    right: rect.right - 20,
-                    bottom: y + 28,
-                },
-                rgb(248, 250, 252),
-                self.fonts.normal,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            y += 30;
-        }
-    }
-
-    unsafe fn paint_buttons(&self, hdc: HDC, rect: RECT) {
-        for spec in self.button_specs(rect) {
-            let (fill_color, border_color, text_color) = if !spec.enabled {
-                (rgb(31, 34, 40), rgb(45, 49, 58), rgb(105, 113, 128))
-            } else if spec.primary {
-                (rgb(31, 91, 72), rgb(52, 211, 153), rgb(220, 252, 231))
-            } else if spec.button == UiButton::Close {
-                (rgb(52, 31, 36), rgb(101, 43, 55), rgb(254, 202, 202))
-            } else {
-                (rgb(26, 30, 38), rgb(58, 65, 78), rgb(226, 232, 240))
-            };
-            rounded_rect(hdc, spec.rect, fill_color, border_color, 10);
-            draw_text(
-                hdc,
-                &spec.label,
-                RECT {
-                    left: spec.rect.left + 8,
-                    top: spec.rect.top,
-                    right: spec.rect.right - 8,
-                    bottom: spec.rect.bottom,
-                },
-                text_color,
-                self.fonts.small,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-        }
-    }
-
-    unsafe fn paint_result(&self, hdc: HDC, rect: RECT, result: &TradeResult) {
-        let priced = result
-            .entries
-            .iter()
-            .map(|entry| entry.price.as_str())
-            .find(|price| !price.is_empty() && *price != "未标价")
-            .unwrap_or("无标价");
-        let distribution = result
-            .summary
-            .get(1)
-            .map(|line| line.replace("分布: ", ""))
-            .or_else(|| result.summary.first().cloned())
-            .unwrap_or_else(|| "暂无分布".to_string());
-
-        let gap = 10;
-        let card_w = (rect.right - 40 - gap * 2) / 3;
-        let total_text = result.total.to_string();
-        self.metric_card(
-            hdc,
-            MetricCard {
-                x: 20,
-                y: 78,
-                w: card_w,
-                label: "最低价",
-                value: priced,
-                color: rgb(134, 239, 172),
-            },
-        );
-        self.metric_card(
-            hdc,
-            MetricCard {
-                x: 20 + card_w + gap,
-                y: 78,
-                w: card_w,
-                label: "挂单数",
-                value: &total_text,
-                color: rgb(191, 219, 254),
-            },
-        );
-        self.metric_card(
-            hdc,
-            MetricCard {
-                x: 20 + (card_w + gap) * 2,
-                y: 78,
-                w: card_w,
-                label: "常见价格",
-                value: &distribution,
-                color: rgb(253, 230, 138),
-            },
-        );
-
-        let page_size = result.page_size.max(1);
-        let pages = max(1, result.entries.len().div_ceil(page_size));
-        let page = min(self.page, pages - 1);
-        let detected_mods = result.item.mods.len();
-        let matched_mods = result
-            .item
-            .mods
-            .iter()
-            .filter(|item_mod| item_mod.stat_id.is_some())
-            .count();
-        let mod_mode = if self.query_options.use_mods {
-            "同属性 开"
-        } else {
-            "同属性 关"
-        };
-        let value_mode = if self.query_options.use_values {
-            "数值 开"
-        } else {
-            "数值 关"
-        };
-        let selected_mod_count = if self.query_options.use_mods {
-            self.query_options
-                .selected_mod_patterns
-                .as_ref()
-                .map(|patterns| patterns.len())
-                .unwrap_or(detected_mods)
-        } else {
-            0
-        };
-        let filter_line = if detected_mods > 0 {
-            format!(
-                "{mod_mode}   {value_mode}   已选属性 {selected_mod_count}/{detected_mods}   匹配 {matched_mods}/{detected_mods}   第 {}/{} 页",
-                page + 1,
-                pages
-            )
-        } else {
-            format!(
-                "{mod_mode}   {value_mode}   未识别到可筛选属性   第 {}/{} 页",
-                page + 1,
-                pages
-            )
-        };
-        draw_text(
-            hdc,
-            &filter_line,
-            RECT {
-                left: 22,
-                top: 152,
-                right: rect.right - 22,
-                bottom: 174,
-            },
-            rgb(148, 163, 184),
-            self.fonts.small,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-
-        let table_top = 210;
-        rounded_rect(
-            hdc,
-            RECT {
-                left: 20,
-                top: table_top,
-                right: rect.right - 20,
-                bottom: table_top + 28,
-            },
-            rgb(28, 32, 39),
-            rgb(58, 65, 78),
-            8,
-        );
-        draw_text(
-            hdc,
-            "价格",
-            RECT {
-                left: 32,
-                top: table_top,
-                right: 180,
-                bottom: table_top + 28,
-            },
-            rgb(203, 213, 225),
-            self.fonts.bold,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
-        draw_text(
-            hdc,
-            "卖家",
-            RECT {
-                left: 190,
-                top: table_top,
-                right: 330,
-                bottom: table_top + 28,
-            },
-            rgb(203, 213, 225),
-            self.fonts.bold,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
-        draw_text(
-            hdc,
-            "物品",
-            RECT {
-                left: 340,
-                top: table_top,
-                right: rect.right - 32,
-                bottom: table_top + 28,
-            },
-            rgb(203, 213, 225),
-            self.fonts.bold,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
-
-        if result.entries.is_empty() {
-            let empty_message = if result.total > 0 {
-                "搜索到了挂单，但明细没有取到；可以点打开市集查看，或重试一次。"
-            } else if result.options.use_mods || result.options.use_values {
-                "没有匹配挂单；同属性/数值可能过严，可关闭筛选后重试。"
-            } else {
-                "没搜到在线挂单，可以放宽底材/稀有度再试。"
-            };
-            draw_text(
-                hdc,
-                empty_message,
-                RECT {
-                    left: 22,
-                    top: table_top + 42,
-                    right: rect.right - 22,
-                    bottom: table_top + 80,
-                },
-                rgb(251, 191, 36),
-                self.fonts.normal,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            return;
-        }
-
-        let visible_entries = result
-            .entries
-            .iter()
-            .skip(page * page_size)
-            .take(page_size)
-            .collect::<Vec<_>>();
-
-        for (idx, entry) in visible_entries.iter().enumerate() {
-            let top = table_top + 28 + idx as i32 * 27;
-            let bg = if idx % 2 == 0 {
-                rgb(18, 22, 28)
-            } else {
-                rgb(23, 27, 34)
-            };
-            let row_rect = RECT {
-                left: 20,
-                top,
-                right: rect.right - 20,
-                bottom: top + 27,
-            };
-            if idx == visible_entries.len() - 1 {
-                rounded_rect(hdc, row_rect, bg, bg, 8);
-            } else {
-                fill(hdc, row_rect, bg);
-            }
-            draw_text(
-                hdc,
-                &entry.price,
-                RECT {
-                    left: 32,
-                    top,
-                    right: 180,
-                    bottom: top + 27,
-                },
-                rgb(254, 243, 199),
-                self.fonts.small,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            draw_text(
-                hdc,
-                &entry.seller,
-                RECT {
-                    left: 190,
-                    top,
-                    right: 330,
-                    bottom: top + 27,
-                },
-                rgb(219, 234, 254),
-                self.fonts.small,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            draw_text(
-                hdc,
-                &entry.item_name,
-                RECT {
-                    left: 340,
-                    top,
-                    right: rect.right - 72,
-                    bottom: top + 27,
-                },
-                rgb(229, 231, 235),
-                self.fonts.small,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-            // 私聊W按钮
-            let w_btn_rect = RECT {
-                left: rect.right - 70,
-                top: top + 6,
-                right: rect.right - 32,
-                bottom: top + 22,
-            };
-            rounded_rect(hdc, w_btn_rect, rgb(22, 68, 52), rgb(52, 211, 153), 4);
-            draw_text(
-                hdc,
-                "W",
-                w_btn_rect,
-                rgb(255, 255, 255),
-                self.fonts.small,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-            );
-        }
-    }
-
-    unsafe fn metric_card(&self, hdc: HDC, card: MetricCard<'_>) {
-        rounded_rect(
-            hdc,
-            RECT {
-                left: card.x,
-                top: card.y,
-                right: card.x + card.w,
-                bottom: card.y + 68,
-            },
-            rgb(19, 23, 29),
-            rgb(43, 49, 60),
-            10,
-        );
-        draw_text(
-            hdc,
-            card.label,
-            RECT {
-                left: card.x + 10,
-                top: card.y + 8,
-                right: card.x + card.w - 10,
-                bottom: card.y + 26,
-            },
-            rgb(148, 163, 184),
-            self.fonts.small,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-        );
-        draw_text(
-            hdc,
-            card.value,
-            RECT {
-                left: card.x + 10,
-                top: card.y + 29,
-                right: card.x + card.w - 10,
-                bottom: card.y + 64,
-            },
-            card.color,
-            self.fonts.bold,
-            DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS,
-        );
-    }
-}
-
-unsafe fn fill(hdc: HDC, rect: RECT, color: u32) {
-    let brush = CreateSolidBrush(color);
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush as _);
-}
-
-unsafe fn rounded_rect(hdc: HDC, rect: RECT, fill_color: u32, border_color: u32, radius: i32) {
-    let brush = CreateSolidBrush(fill_color);
-    let pen = CreatePen(PS_SOLID, 1, border_color);
-    let old_brush = SelectObject(hdc, brush as _);
-    let old_pen = SelectObject(hdc, pen as _);
-    RoundRect(
-        hdc,
-        rect.left,
-        rect.top,
-        rect.right,
-        rect.bottom,
-        radius,
-        radius,
-    );
-    SelectObject(hdc, old_pen);
-    SelectObject(hdc, old_brush);
-    DeleteObject(pen as _);
-    DeleteObject(brush as _);
-}
-
-unsafe fn draw_text(hdc: HDC, text: &str, mut rect: RECT, color: u32, font: HFONT, flags: u32) {
-    let text = wide(text);
-    let old_font = SelectObject(hdc, font as _);
-    SetBkMode(hdc, TRANSPARENT as i32);
-    SetTextColor(hdc, color);
-    DrawTextW(hdc, text.as_ptr(), -1, &mut rect, flags);
-    SelectObject(hdc, old_font);
 }
 
 unsafe fn state_from_hwnd(hwnd: HWND) -> Option<&'static mut UiState> {
@@ -4358,8 +3683,29 @@ unsafe extern "system" fn wnd_proc(
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
         WM_MOUSEMOVE => {
+            let x = (lparam as i16) as i32;
+            let y = ((lparam >> 16) as i16) as i32;
             if let Some(state) = state_from_hwnd(hwnd) {
                 state.touch_activity();
+                let mut rect = RECT::default();
+                GetClientRect(hwnd, &mut rect);
+                state.hovered_button = state
+                    .button_specs(rect)
+                    .iter()
+                    .find(|spec| layout::rect_contains(&spec.rect, x, y))
+                    .map(|spec| spec.button);
+            }
+            0
+        }
+        WM_MOUSEWHEEL => {
+            let delta = ((wparam >> 16) as i16) as i32;
+            if let Some(state) = state_from_hwnd(hwnd) {
+                state.touch_activity();
+                if delta > 0 {
+                    state.page_prev();
+                } else {
+                    state.page_next();
+                }
             }
             0
         }
@@ -4611,7 +3957,9 @@ fn start_price_query_from_parsed(
     });
 
     if let Some(hwnd) = UI_HWND.get() {
-        unsafe { PostMessageW(*hwnd as HWND, WM_TIMER, TIMER_ID as WPARAM, 0); }
+        unsafe {
+            PostMessageW(*hwnd as HWND, WM_TIMER, TIMER_ID as WPARAM, 0);
+        }
     }
 
     thread::spawn(
@@ -5271,6 +4619,24 @@ mod tests {
             query_mode: "type".to_string(),
             display: "苦痛 导航".to_string(),
             mods: Vec::new(),
+            quality: None,
+            required_level: None,
+            physical_damage_min: None,
+            physical_damage_max: None,
+            fire_damage_min: None,
+            fire_damage_max: None,
+            cold_damage_min: None,
+            cold_damage_max: None,
+            lightning_damage_min: None,
+            lightning_damage_max: None,
+            chaos_damage_min: None,
+            chaos_damage_max: None,
+            critical_strike_chance: None,
+            attacks_per_second: None,
+            armour: None,
+            evasion: None,
+            energy_shield: None,
+            sockets: None,
         };
         parsed.mods.push(ParsedMod {
             text: "+20 最大生命".to_string(),
@@ -5351,5 +4717,145 @@ mod tests {
         assert!(!is_allowed_trade_endpoint(
             "https://poe.game.qq.com/api/trade/search/poe2/test"
         ));
+    }
+
+    #[test]
+    fn trade_entry_sort_by_price_numerically() {
+        let mut entries = vec![
+            TradeEntry {
+                price: "5 chaos".into(),
+                price_amount: Some(5.0),
+                ..Default::default()
+            },
+            TradeEntry {
+                price: "1 divine".into(),
+                price_amount: Some(1.0),
+                ..Default::default()
+            },
+            TradeEntry {
+                price: "10 chaos".into(),
+                price_amount: Some(10.0),
+                ..Default::default()
+            },
+        ];
+        sort_entries(&mut entries, SortOrder::PriceAsc);
+        assert_eq!(entries[0].price_amount, Some(1.0));
+        assert_eq!(entries[1].price_amount, Some(5.0));
+        assert_eq!(entries[2].price_amount, Some(10.0));
+    }
+
+    #[test]
+    fn trade_entry_sort_online_first() {
+        let mut entries = vec![
+            TradeEntry {
+                price: "5 chaos".into(),
+                price_amount: Some(5.0),
+                online: Some(false),
+                ..Default::default()
+            },
+            TradeEntry {
+                price: "10 chaos".into(),
+                price_amount: Some(10.0),
+                online: Some(true),
+                ..Default::default()
+            },
+        ];
+        sort_entries(&mut entries, SortOrder::OnlineFirst);
+        assert_eq!(entries[0].online, Some(true));
+        assert_eq!(entries[1].online, Some(false));
+    }
+
+    #[test]
+    fn trade_entry_default_has_all_none() {
+        let entry = TradeEntry::default();
+        assert!(entry.price_amount.is_none());
+        assert!(entry.price_currency.is_none());
+        assert!(entry.base_type.is_none());
+        assert!(entry.item_level.is_none());
+        assert!(entry.online.is_none());
+        assert!(entry.indexed_time.is_none());
+        assert!(entry.whisper_text.is_none());
+    }
+
+    #[test]
+    fn relative_time_parses_iso_format() {
+        let result = relative_time("2024-01-15T10:30:00Z");
+        assert_eq!(result, "2024-01-15 10:30:00");
+    }
+
+    #[test]
+    fn parse_price_to_chaos_handles_missing_fields() {
+        // 测试 price_amount 为 None 时的排序行为
+        let mut entries = vec![
+            TradeEntry {
+                price: "no price".into(),
+                price_amount: None,
+                ..Default::default()
+            },
+            TradeEntry {
+                price: "5 chaos".into(),
+                price_amount: Some(5.0),
+                ..Default::default()
+            },
+        ];
+        sort_entries(&mut entries, SortOrder::PriceAsc);
+        assert_eq!(entries[0].price_amount, Some(5.0)); // 有价格的排在前面
+    }
+
+    #[test]
+    fn parses_weapon_physical_damage() {
+        let text = "Rarity: Rare\n物品类别: 单手剑\n物理伤害: 30-60\n每秒攻击次数: 1.5\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.physical_damage_min, Some(30.0));
+        assert_eq!(item.physical_damage_max, Some(60.0));
+        assert_eq!(item.attacks_per_second, Some(1.5));
+    }
+
+    #[test]
+    fn calculates_physical_dps_correctly() {
+        let text = "Rarity: Rare\n物品类别: 单手剑\n物理伤害: 30-60\n每秒攻击次数: 1.5\n--------";
+        let item = parse_item_text(text);
+        let dps = item.physical_dps().unwrap();
+        assert!((dps - 67.5).abs() < 0.01); // (30+60)/2 * 1.5 = 67.5
+    }
+
+    #[test]
+    fn calculates_total_dps_with_elements() {
+        let text = "Rarity: Rare\n物品类别: 弓\n物理伤害: 20-40\n火焰伤害: 10-20\n每秒攻击次数: 1.4\n--------";
+        let item = parse_item_text(text);
+        let total = item.total_dps().unwrap();
+        // physical: (20+40)/2*1.4 = 42, fire: (10+20)/2*1.4 = 21, total = 63
+        assert!((total - 63.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parses_armour_and_evasion() {
+        let text = "Rarity: Rare\n物品类别: 胸甲\n护甲: 200\n闪避值: 150\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.armour, Some(200));
+        assert_eq!(item.evasion, Some(150));
+    }
+
+    #[test]
+    fn parses_quality_and_required_level() {
+        let text = "Rarity: Rare\n物品类别: 单手剑\n品质: +20%\n需求: 等级 60\n--------";
+        let item = parse_item_text(text);
+        assert_eq!(item.quality, Some(20));
+        assert_eq!(item.required_level, Some(60));
+    }
+
+    #[test]
+    fn non_weapon_has_no_dps() {
+        let text = "Rarity: Rare\n物品类别: 戒指\n--------";
+        let item = parse_item_text(text);
+        assert!(item.total_dps().is_none());
+        assert!(!item.is_weapon());
+    }
+
+    #[test]
+    fn missing_attack_speed_returns_none_dps() {
+        let text = "Rarity: Rare\n物品类别: 单手剑\n物理伤害: 30-60\n--------";
+        let item = parse_item_text(text);
+        assert!(item.physical_dps().is_none());
     }
 }
