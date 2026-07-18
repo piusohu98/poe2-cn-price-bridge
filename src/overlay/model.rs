@@ -107,13 +107,13 @@ pub enum OverlayEvent {
     },
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ViewKind {
     Message(Vec<String>),
     Result(Box<TradeResult>),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct OverlayView {
     pub title: String,
     pub subtitle: String,

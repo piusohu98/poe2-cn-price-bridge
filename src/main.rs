@@ -17,6 +17,7 @@ use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
+use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
 use std::mem::MaybeUninit;
@@ -3901,6 +3902,32 @@ unsafe extern "system" fn wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wnd_proc_inner(hwnd, msg, wparam, lparam)
+    }));
+
+    match result {
+        Ok(lr) => lr,
+        Err(panic_info) => {
+            log_panic_diagnostic(hwnd, msg, wparam, lparam, panic_info);
+            if msg == WM_PAINT {
+                // WM_PAINT panic 后不调用 DefWindowProcW
+                // 因为 BeginPaint 可能已经被调用
+                // 返回 0 让窗口保持上次的内容
+                0
+            } else {
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+        }
+    }
+}
+
+unsafe extern "system" fn wnd_proc_inner(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         WM_NCCREATE => {
             let createstruct =
@@ -4078,6 +4105,51 @@ unsafe extern "system" fn wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+unsafe fn log_panic_diagnostic(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    panic_info: Box<dyn std::any::Any + Send>,
+) {
+    let msg_name = match msg {
+        WM_PAINT => "WM_PAINT",
+        WM_TIMER => "WM_TIMER",
+        WM_MOUSEMOVE => "WM_MOUSEMOVE",
+        WM_MOUSEWHEEL => "WM_MOUSEWHEEL",
+        WM_KEYDOWN => "WM_KEYDOWN",
+        WM_MOUSELEAVE => "WM_MOUSELEAVE",
+        WM_LBUTTONDOWN => "WM_LBUTTONDOWN",
+        WM_LBUTTONUP => "WM_LBUTTONUP",
+        _ => "unknown",
+    };
+
+    let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = panic_info.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    };
+
+    let mut state_info = String::new();
+    if let Some(state) = state_from_hwnd(hwnd) {
+        let _ = write!(
+            state_info,
+            "page={}, view={:?}, show_mode={:?}, input_ctx={:?}",
+            state.page, state.view, state.show_mode, state.input_context
+        );
+        if let Some(result) = state.current_result() {
+            let _ = write!(state_info, ", entries={}", result.entries.len());
+        }
+    }
+
+    log(format!(
+        "PANIC in wnd_proc: msg={}({:#x}), wparam={:#x}, lparam={:#x}, panic={}, state=[{}]",
+        msg_name, msg, wparam, lparam, panic_msg, state_info
+    ));
 }
 
 fn read_clipboard_text() -> Result<String> {
@@ -5689,5 +5761,20 @@ mod tests {
             should_query = false;
         }
         assert!(should_query, "game context should allow auto query");
+    }
+
+    #[test]
+    fn wnd_proc_panic_is_contained() {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            panic!("test panic in wnd_proc");
+        }));
+        assert!(result.is_err(), "panic should be caught");
+    }
+
+    #[test]
+    fn wnd_proc_panic_diagnostic_includes_state() {
+        let panic_msg = "index out of bounds: len=43 start=60";
+        assert!(panic_msg.contains("len=43"));
+        assert!(panic_msg.contains("start=60"));
     }
 }
