@@ -5,6 +5,7 @@
 ### Changed
 
 - 输入上下文统一管理：新增 InputContext 枚举（Game/Overlay），替换 mouse_inside_overlay 布尔值。鼠标离开 Overlay 窗口时恢复 Game 上下文，WM_MOUSEWHEEL 仅在 Overlay 上下文中翻页，窗口隐藏/关闭/Esc 时自动恢复 Game 上下文。新增 close_panel() 统一入口方法。
+- 剪贴板序列号检测：使用 `GetClipboardSequenceNumber` 替代文本比对判断新的 Ctrl+C 操作，相同物品也能重新查询。鼠标在 Overlay 内时不自动查询，避免插件复制私聊/链接误触发查价。新增 300ms 防抖防止重复请求。
 
 ### Fixed
 

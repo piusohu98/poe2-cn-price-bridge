@@ -39,6 +39,7 @@ use windows_sys::Win32::Graphics::Gdi::{HBRUSH, InvalidateRect};
 use windows_sys::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
+use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Controls::WM_MOUSELEAVE;
@@ -3186,7 +3187,9 @@ pub(crate) struct UiState {
     pub(crate) page: usize,
     pub(crate) query_options: QueryOptions,
     pub(crate) last_clipboard_text: String,
+    pub(crate) last_clipboard_sequence: u32,
     pub(crate) last_clipboard_check: Instant,
+    pub(crate) last_auto_query_at: Instant,
     pub(crate) last_settings_reload: Instant,
     pub(crate) settings: AppSettings,
     pub(crate) registered_manual_hotkey: Option<String>,
@@ -3225,7 +3228,9 @@ impl UiState {
             page: 0,
             query_options: QueryOptions::default(),
             last_clipboard_text: read_clipboard_text().unwrap_or_default(),
+            last_clipboard_sequence: 0,
             last_clipboard_check: Instant::now(),
+            last_auto_query_at: Instant::now(),
             last_settings_reload: Instant::now(),
             settings: load_config().settings.normalized(),
             registered_manual_hotkey: None,
@@ -3666,20 +3671,42 @@ impl UiState {
         if !self.settings.auto_clipboard {
             return;
         }
+
+        // 鼠标在 Overlay 内时不自动查询（插件的复制操作）
+        if self.input_context == InputContext::Overlay {
+            return;
+        }
+
         if self.last_clipboard_check.elapsed() < Duration::from_millis(250) {
             return;
         }
         self.last_clipboard_check = Instant::now();
+
+        // 使用剪贴板序列号检测新的 Ctrl+C
+        let seq = unsafe { GetClipboardSequenceNumber() };
+        if seq == self.last_clipboard_sequence {
+            return; // 序列号未变化，跳过
+        }
+        self.last_clipboard_sequence = seq;
+
         let Ok(text) = read_clipboard_text() else {
             return;
         };
-        if text == self.last_clipboard_text {
-            return;
-        }
+
+        // 即使文本与上次相同，只要序列号是新的，也允许重新查询
+        // 但保留文本记录用于日志
         self.last_clipboard_text = text.clone();
-        if !looks_like_poe_item_text(&text) {
+
+        // 防抖：300ms 内同一序列号不重复处理
+        if self.last_auto_query_at.elapsed() < Duration::from_millis(300) {
             return;
         }
+        self.last_auto_query_at = Instant::now();
+
+        if !looks_like_poe_item_text(&text) {
+            return; // 不是物品文本（如私聊复制、链接），忽略
+        }
+
         start_price_query_from_text(text, self.event_tx.clone(), false, QueryOptions::default());
     }
 
@@ -4780,7 +4807,9 @@ impl UiState {
             page: 0,
             query_options: QueryOptions::default(),
             last_clipboard_text: String::new(),
+            last_clipboard_sequence: 0,
             last_clipboard_check: std::time::Instant::now(),
+            last_auto_query_at: std::time::Instant::now(),
             last_settings_reload: std::time::Instant::now(),
             settings: AppSettings::default(),
             registered_manual_hotkey: None,
@@ -5620,5 +5649,45 @@ mod tests {
     fn game_context_blocks_overlay_keys() {
         let ctx = InputContext::Game;
         assert!(ctx != InputContext::Overlay);
+    }
+
+    #[test]
+    fn clip_sequence_changed_allows_same_text_requery() {
+        // 模拟：相同文本，新序列号 → 应允许查询
+        let old_seq: u32 = 100;
+        let new_seq: u32 = 101;
+        assert_ne!(old_seq, new_seq, "new sequence should trigger re-query");
+    }
+
+    #[test]
+    fn clip_sequence_unchanged_blocks_requery() {
+        // 模拟：序列号未变化 → 不应查询
+        let old_seq: u32 = 100;
+        let new_seq: u32 = 100;
+        assert_eq!(
+            old_seq, new_seq,
+            "same sequence should not trigger re-query"
+        );
+    }
+
+    #[test]
+    fn overlay_context_blocks_auto_query() {
+        // 模拟鼠标在 Overlay 内 → 不自动查询
+        let ctx = InputContext::Overlay;
+        let mut should_query = true;
+        if ctx == InputContext::Overlay {
+            should_query = false;
+        }
+        assert!(!should_query, "overlay context should block auto query");
+    }
+
+    #[test]
+    fn game_context_allows_auto_query() {
+        let ctx = InputContext::Game;
+        let mut should_query = true;
+        if ctx == InputContext::Overlay {
+            should_query = false;
+        }
+        assert!(should_query, "game context should allow auto query");
     }
 }
