@@ -528,7 +528,8 @@ impl OverlayLayout for UiState {
         let visible_rows = visible_row_count(&plan.table_body);
         let page_size = visible_rows.max(1);
         let can_prev = self.page > 0;
-        let can_next = (self.page + 1) * page_size < result.entries.len();
+        let can_next =
+            !result.entries.is_empty() && self.page + 1 < result.entries.len().div_ceil(page_size);
 
         let mut specs = Vec::new();
 

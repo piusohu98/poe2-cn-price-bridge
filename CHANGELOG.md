@@ -1,6 +1,10 @@
-# Changelog
+﻿# Changelog
 
 ## Unreleased
+
+### Fixed
+
+- 翻页越界崩溃：修复 page_next 使用 esult.page_size（配置值）而渲染端使用动态 isible_rows 不一致导致的切片越界 panic。isible_listing_indices 增加防御性分页检查和 get() 切片，page_next/page_prev 统一使用动态 page_size，utton_specs_for_result 的 can_next 使用 page_count 公式。新增 current_page_size、page_count、clamp_page 辅助方法，并添加回归测试覆盖两个崩溃场景（len=43/start=60, len=60/start=80）。
 
 ## 0.4.2
 

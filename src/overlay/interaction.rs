@@ -305,17 +305,21 @@ impl OverlayInteraction for UiState {
     }
 
     unsafe fn page_prev(&mut self) {
-        if self.page > 0 {
-            self.page -= 1;
-            InvalidateRect(self.hwnd, std::ptr::null(), 0);
-        }
+        self.page = self.page.saturating_sub(1);
+        InvalidateRect(self.hwnd, std::ptr::null(), 0);
     }
 
     unsafe fn page_next(&mut self) {
         let Some(result) = self.current_result() else {
             return;
         };
-        if (self.page + 1) * result.page_size < result.entries.len() {
+        if result.entries.is_empty() {
+            return;
+        }
+        // 使用动态 page_size 而非 result.page_size，确保与渲染端一致
+        let page_size = self.current_page_size();
+        let page_count = self.page_count(result.entries.len(), page_size);
+        if self.page + 1 < page_count {
             self.page += 1;
             InvalidateRect(self.hwnd, std::ptr::null(), 0);
         }

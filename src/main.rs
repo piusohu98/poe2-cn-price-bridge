@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unsafe_op_in_unsafe_fn)]
 
 mod currency;
@@ -68,7 +68,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::overlay::interaction::OverlayInteraction;
 use crate::overlay::layout;
-use crate::overlay::layout::{LayoutPlan, OverlayLayout, compute_item_detail_lines};
+use crate::overlay::layout::{
+    LayoutPlan, OverlayLayout, compute_item_detail_lines, visible_row_count,
+};
 use crate::overlay::model::{
     Fonts, OverlayEvent, OverlayView, QueryState, UiButton, ViewKind, WindowPos,
 };
@@ -1643,9 +1645,14 @@ pub(crate) fn visible_listing_indices(
         }),
     }
 
-    let start = page * page_size;
+    // 防御性分页，避免越界 panic
+    let start = page.saturating_mul(page_size);
+    if start >= indexed.len() || page_size == 0 {
+        return Vec::new();
+    }
     let end = (start + page_size).min(indexed.len());
-    indexed[start..end].to_vec()
+    // 使用 get 替代直接切片，双重保险
+    indexed.get(start..end).unwrap_or(&[]).to_vec()
 }
 
 /// 将 ISO 8601 时间字符串转换为易读文本
@@ -3770,6 +3777,48 @@ impl UiState {
             eprintln!("保存面板位置失败: {err}");
         }
     }
+
+    /// 获取当前页的实际 page_size（动态可见行数）
+    fn current_page_size(&self) -> usize {
+        if let Some(result) = self.current_result() {
+            let item_lines = compute_item_detail_lines(&result.item);
+            let mod_count = result.item.mods.len();
+            let entry_count = result.entries.len();
+            let height = LayoutPlan::suggested_height(item_lines, mod_count, entry_count, 480, 900);
+            let plan = LayoutPlan::compute(
+                RECT {
+                    left: 0,
+                    top: 0,
+                    right: 580,
+                    bottom: height,
+                },
+                item_lines,
+                mod_count,
+            );
+            visible_row_count(&plan.table_body).max(1)
+        } else {
+            8 // 默认值
+        }
+    }
+
+    /// 计算总页数
+    fn page_count(&self, total: usize, page_size: usize) -> usize {
+        if total == 0 || page_size == 0 {
+            return 1;
+        }
+        total.div_ceil(page_size)
+    }
+
+    /// 钳制页码到有效范围
+    #[allow(dead_code)]
+    fn clamp_page(&mut self, total: usize, page_size: usize) {
+        let pc = self.page_count(total, page_size);
+        if pc > 0 {
+            self.page = self.page.min(pc - 1);
+        } else {
+            self.page = 0;
+        }
+    }
 }
 
 unsafe fn state_from_hwnd(hwnd: HWND) -> Option<&'static mut UiState> {
@@ -5398,5 +5447,89 @@ mod tests {
         assert_ne!(id1, id2);
         assert_eq!(id1, 0);
         assert_eq!(id2, 1);
+    }
+
+    // ── 回归测试：page_size 不一致导致切片越界 ──
+
+    #[test]
+    fn visible_listing_indices_empty_when_page_out_of_range() {
+        // len=43, page_size=20, page=3 → start=60 > 43 → 应返回空
+        let entries: Vec<TradeEntry> = (0..43)
+            .map(|i| TradeEntry {
+                seller: format!("S{}", i),
+                price: format!("{} chaos", i),
+                price_amount: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let result = visible_listing_indices(&entries, SortOrder::PriceAsc, 3, 20);
+        assert!(
+            result.is_empty(),
+            "should return empty for out-of-range page"
+        );
+    }
+
+    #[test]
+    fn visible_listing_indices_handles_zero_page_size() {
+        let entries: Vec<TradeEntry> = (0..10)
+            .map(|i| TradeEntry {
+                seller: format!("S{}", i),
+                price: format!("{} chaos", i),
+                price_amount: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let result = visible_listing_indices(&entries, SortOrder::PriceAsc, 0, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn visible_listing_indices_last_partial_page() {
+        // 最后一页只有 3 条
+        let entries: Vec<TradeEntry> = (0..43)
+            .map(|i| TradeEntry {
+                seller: format!("S{}", i),
+                price: format!("{} chaos", i),
+                price_amount: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let result = visible_listing_indices(&entries, SortOrder::PriceAsc, 2, 20);
+        assert_eq!(result.len(), 3); // 43 - 40 = 3
+    }
+
+    #[test]
+    fn page_count_calculates_correctly() {
+        assert_eq!(page_count(43, 20), 3);
+        assert_eq!(page_count(60, 20), 3);
+        assert_eq!(page_count(0, 20), 1);
+        assert_eq!(page_count(20, 20), 1);
+        assert_eq!(page_count(21, 20), 2);
+    }
+
+    #[test]
+    fn visible_listing_indices_page_60_entries_page5_size20() {
+        // len=60, page=5, page_size=20 → start=100 > 60 → 应返回空（崩溃场景二）
+        let entries: Vec<TradeEntry> = (0..60)
+            .map(|i| TradeEntry {
+                seller: format!("S{}", i),
+                price: format!("{} chaos", i),
+                price_amount: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let result = visible_listing_indices(&entries, SortOrder::PriceAsc, 5, 20);
+        assert!(
+            result.is_empty(),
+            "should return empty for out-of-range page (len=60,page=5,page_size=20)"
+        );
+    }
+
+    fn page_count(total: usize, page_size: usize) -> usize {
+        if total == 0 || page_size == 0 {
+            1
+        } else {
+            total.div_ceil(page_size)
+        }
     }
 }
