@@ -9,6 +9,15 @@ use windows_sys::Win32::Graphics::Gdi::{
 
 use crate::{ParsedItem, QueryOptions, TradeResult, rgb, wide};
 
+/// Overlay 显示模式：控制窗口是否激活/抢焦点
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayShowMode {
+    /// 被动模式：不抢焦点，不激活窗口（自动查价、查询结果）
+    Passive,
+    /// 交互模式：允许激活窗口（托盘打开面板时）
+    Interactive,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiButton {
     Pin,

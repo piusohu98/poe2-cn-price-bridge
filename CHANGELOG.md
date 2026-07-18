@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- 被动查价 Overlay / 主动操作面板焦点模式：新增 OverlayShowMode 枚举（Passive/Interactive），自动查价和查询结果使用 Passive 模式（SWP_NOACTIVATE，不抢焦点），托盘"打开面板"使用 Interactive 模式（允许激活窗口）。窗口创建添加 WS_EX_NOACTIVATE 避免初次激活，WM_KEYDOWN 在 Passive 模式下不拦截方向键/M/V/Esc 等按键。修复查价 Overlay 抢走游戏焦点的问题。
 - 翻页越界崩溃：修复 page_next 使用 esult.page_size（配置值）而渲染端使用动态 isible_rows 不一致导致的切片越界 panic。isible_listing_indices 增加防御性分页检查和 get() 切片，page_next/page_prev 统一使用动态 page_size，utton_specs_for_result 的 can_next 使用 page_count 公式。新增 current_page_size、page_count、clamp_page 辅助方法，并添加回归测试覆盖两个崩溃场景（len=43/start=60, len=60/start=80）。
 
 ## 0.4.2

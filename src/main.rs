@@ -1,4 +1,4 @@
-﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unsafe_op_in_unsafe_fn)]
 
 mod currency;
@@ -55,15 +55,16 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu, CreateWindowExW,
     DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, FindWindowW,
     GWLP_USERDATA, GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW,
-    GetWindowRect, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, KillTimer,
-    LR_LOADFROMFILE, LoadCursorW, LoadIconW, LoadImageW, MF_SEPARATOR, MF_STRING, MSG,
+    GetWindowRect, HICON, HTCAPTION, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON,
+    KillTimer, LR_LOADFROMFILE, LoadCursorW, LoadIconW, LoadImageW, MF_SEPARATOR, MF_STRING, MSG,
     PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
-    SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_ERASEBKGND,
-    WM_EXITSIZEMOVE, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER,
-    WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE,
+    WM_DESTROY, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT,
+    WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 use crate::overlay::interaction::OverlayInteraction;
@@ -72,7 +73,7 @@ use crate::overlay::layout::{
     LayoutPlan, OverlayLayout, compute_item_detail_lines, visible_row_count,
 };
 use crate::overlay::model::{
-    Fonts, OverlayEvent, OverlayView, QueryState, UiButton, ViewKind, WindowPos,
+    Fonts, OverlayEvent, OverlayShowMode, OverlayView, QueryState, UiButton, ViewKind, WindowPos,
 };
 use crate::overlay::render::OverlayRenderer;
 
@@ -3200,6 +3201,8 @@ pub(crate) struct UiState {
     pub(crate) track_mouse: bool,
     #[allow(dead_code)]
     pub(crate) last_query_id: u64,
+    pub(crate) show_mode: OverlayShowMode,
+    pub(crate) mouse_inside_overlay: bool,
 }
 
 impl UiState {
@@ -3235,6 +3238,8 @@ impl UiState {
             hovered_button: None,
             track_mouse: true,
             last_query_id: 0,
+            show_mode: OverlayShowMode::Passive,
+            mouse_inside_overlay: false,
         }
     }
 
@@ -3314,10 +3319,28 @@ impl UiState {
     }
 
     unsafe fn show_from_tray(&mut self) {
+        self.show_mode = OverlayShowMode::Interactive;
         ShowWindow(self.hwnd, SW_SHOW);
         SetForegroundWindow(self.hwnd);
         self.hide_deadline = None;
         InvalidateRect(self.hwnd, null(), 0);
+        self.show_mode = OverlayShowMode::Passive;
+    }
+
+    #[allow(dead_code)]
+    unsafe fn activate_existing_window(&self) {
+        if self.show_mode == OverlayShowMode::Interactive {
+            SetForegroundWindow(self.hwnd);
+        }
+        SetWindowPos(
+            self.hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+        );
     }
 
     unsafe fn show_tray_menu(&mut self) {
@@ -3463,6 +3486,7 @@ impl UiState {
                 options,
                 accent,
             } => {
+                self.show_mode = OverlayShowMode::Passive;
                 // 重置筛选状态，避免成功结果继续显示旧警告
                 self.filters_dirty = false;
                 // 创建一个仅包含物品信息的"空" TradeResult
@@ -3510,6 +3534,7 @@ impl UiState {
                 accent,
                 timeout,
             } => {
+                self.show_mode = OverlayShowMode::Passive;
                 self.page = 0;
                 self.query_options = result.options.clone();
                 let status = format!(
@@ -3580,7 +3605,15 @@ impl UiState {
         });
         let x = min(max(0, pos.x), max(0, screen_w - width));
         let y = min(max(0, pos.y), max(0, screen_h - height));
-        SetWindowPos(self.hwnd, -1isize as _, x, y, width, height, SWP_SHOWWINDOW);
+        let flags = match self.show_mode {
+            OverlayShowMode::Passive => SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOMOVE,
+            OverlayShowMode::Interactive => SWP_SHOWWINDOW,
+        };
+        SetWindowPos(self.hwnd, HWND_TOPMOST, x, y, width, height, flags);
+        // 只在 Interactive 模式下才抢焦点
+        if self.show_mode == OverlayShowMode::Interactive {
+            SetForegroundWindow(self.hwnd);
+        }
         self.hide_deadline = if self.pinned {
             None
         } else {
@@ -3886,15 +3919,20 @@ unsafe extern "system" fn wnd_proc(
             if let Some(state) = state_from_hwnd(hwnd) {
                 state.hovered_button = None;
                 state.track_mouse = true;
+                state.mouse_inside_overlay = false;
                 InvalidateRect(hwnd, std::ptr::null(), 0);
             }
             0
         }
         WM_KEYDOWN => {
-            if let Some(state) = state_from_hwnd(hwnd)
-                && state.handle_key_down(wparam as u32)
-            {
-                return 0;
+            if let Some(state) = state_from_hwnd(hwnd) {
+                if state.show_mode == OverlayShowMode::Passive && !state.mouse_inside_overlay {
+                    // 不让 Overlay 拦截游戏按键
+                    return 0;
+                }
+                if state.handle_key_down(wparam as u32) {
+                    return 0;
+                }
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
@@ -3902,6 +3940,7 @@ unsafe extern "system" fn wnd_proc(
             let x = (lparam as i16) as i32;
             let y = ((lparam >> 16) as i16) as i32;
             if let Some(state) = state_from_hwnd(hwnd) {
+                state.mouse_inside_overlay = true;
                 state.touch_activity();
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
@@ -4476,7 +4515,15 @@ fn activate_existing_window() -> bool {
             return false;
         }
         ShowWindow(hwnd, SW_SHOW);
-        SetForegroundWindow(hwnd);
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+        );
         true
     }
 }
@@ -4531,7 +4578,7 @@ fn run_ui(
         let state_ptr = Box::into_raw(state);
         let title = wide(APP_DISPLAY_NAME);
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name.as_ptr(),
             title.as_ptr(),
             WS_POPUP,
@@ -4728,6 +4775,8 @@ impl UiState {
             hovered_button: None,
             track_mouse: true,
             last_query_id: 0,
+            show_mode: OverlayShowMode::Passive,
+            mouse_inside_overlay: false,
         }
     }
 }
