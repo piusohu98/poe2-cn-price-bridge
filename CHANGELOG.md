@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- 输入上下文统一管理：新增 InputContext 枚举（Game/Overlay），替换 mouse_inside_overlay 布尔值。鼠标离开 Overlay 窗口时恢复 Game 上下文，WM_MOUSEWHEEL 仅在 Overlay 上下文中翻页，窗口隐藏/关闭/Esc 时自动恢复 Game 上下文。新增 close_panel() 统一入口方法。
+
 ### Fixed
 
 - 被动查价 Overlay / 主动操作面板焦点模式：新增 OverlayShowMode 枚举（Passive/Interactive），自动查价和查询结果使用 Passive 模式（SWP_NOACTIVATE，不抢焦点），托盘"打开面板"使用 Interactive 模式（允许激活窗口）。窗口创建添加 WS_EX_NOACTIVATE 避免初次激活，WM_KEYDOWN 在 Passive 模式下不拦截方向键/M/V/Esc 等按键。修复查价 Overlay 抢走游戏焦点的问题。

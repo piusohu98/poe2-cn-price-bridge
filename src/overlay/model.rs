@@ -18,6 +18,15 @@ pub enum OverlayShowMode {
     Interactive,
 }
 
+/// 输入上下文：统一管理鼠标是否位于插件窗口内
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputContext {
+    /// 鼠标在游戏内，插件只接收剪贴板事件
+    Game,
+    /// 鼠标在 Overlay 窗口内，插件处理鼠标点击、滚轮、局部快捷键
+    Overlay,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiButton {
     Pin,

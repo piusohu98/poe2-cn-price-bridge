@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, SW_HIDE, ShowWindow};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
 
 use crate::overlay::layout::{self, OverlayLayout};
 use crate::overlay::model::{QueryState, UiButton, ViewKind};
@@ -79,7 +79,7 @@ impl OverlayInteraction for UiState {
             match spec.button {
                 UiButton::Pin => self.toggle_pin(),
                 UiButton::Close => {
-                    ShowWindow(self.hwnd, SW_HIDE);
+                    self.close_panel();
                 }
                 UiButton::Wizard => self.open_first_run_wizard(),
                 UiButton::Cookie => self.open_cookie_setup(),
@@ -178,7 +178,7 @@ impl OverlayInteraction for UiState {
                 }
             }
             0x1B => {
-                ShowWindow(self.hwnd, SW_HIDE);
+                self.close_panel();
             } // Esc 关闭
             _ => return false,
         }

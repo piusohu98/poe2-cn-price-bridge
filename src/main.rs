@@ -58,13 +58,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, HICON, HTCAPTION, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON,
     KillTimer, LR_LOADFROMFILE, LoadCursorW, LoadIconW, LoadImageW, MF_SEPARATOR, MF_STRING, MSG,
     PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_CREATE,
-    WM_DESTROY, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_PAINT,
-    WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow,
+    SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_CONTEXTMENU, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_HOTKEY, WM_KEYDOWN,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_NULL,
+    WM_PAINT, WM_RBUTTONUP, WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 
 use crate::overlay::interaction::OverlayInteraction;
@@ -73,7 +73,8 @@ use crate::overlay::layout::{
     LayoutPlan, OverlayLayout, compute_item_detail_lines, visible_row_count,
 };
 use crate::overlay::model::{
-    Fonts, OverlayEvent, OverlayShowMode, OverlayView, QueryState, UiButton, ViewKind, WindowPos,
+    Fonts, InputContext, OverlayEvent, OverlayShowMode, OverlayView, QueryState, UiButton,
+    ViewKind, WindowPos,
 };
 use crate::overlay::render::OverlayRenderer;
 
@@ -3202,7 +3203,7 @@ pub(crate) struct UiState {
     #[allow(dead_code)]
     pub(crate) last_query_id: u64,
     pub(crate) show_mode: OverlayShowMode,
-    pub(crate) mouse_inside_overlay: bool,
+    pub(crate) input_context: InputContext,
 }
 
 impl UiState {
@@ -3239,7 +3240,7 @@ impl UiState {
             track_mouse: true,
             last_query_id: 0,
             show_mode: OverlayShowMode::Passive,
-            mouse_inside_overlay: false,
+            input_context: InputContext::Game,
         }
     }
 
@@ -3645,7 +3646,15 @@ impl UiState {
             && let Some(deadline) = self.hide_deadline
             && Instant::now() >= deadline
         {
-            self.hide_deadline = None;
+            self.close_panel();
+        }
+    }
+
+    fn close_panel(&mut self) {
+        self.input_context = InputContext::Game;
+        self.hovered_button = None;
+        self.hide_deadline = None;
+        unsafe {
             ShowWindow(self.hwnd, SW_HIDE);
         }
     }
@@ -3917,22 +3926,23 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_MOUSELEAVE => {
             if let Some(state) = state_from_hwnd(hwnd) {
+                state.input_context = InputContext::Game;
                 state.hovered_button = None;
                 state.track_mouse = true;
-                state.mouse_inside_overlay = false;
                 InvalidateRect(hwnd, std::ptr::null(), 0);
             }
             0
         }
         WM_KEYDOWN => {
             if let Some(state) = state_from_hwnd(hwnd) {
-                if state.show_mode == OverlayShowMode::Passive && !state.mouse_inside_overlay {
-                    // 不让 Overlay 拦截游戏按键
+                // 只有 Interactive 模式或 Overlay 上下文才处理按键
+                if (state.show_mode == OverlayShowMode::Interactive
+                    || state.input_context == InputContext::Overlay)
+                    && state.handle_key_down(wparam as u32)
+                {
                     return 0;
                 }
-                if state.handle_key_down(wparam as u32) {
-                    return 0;
-                }
+                return 0;
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
@@ -3940,8 +3950,11 @@ unsafe extern "system" fn wnd_proc(
             let x = (lparam as i16) as i32;
             let y = ((lparam >> 16) as i16) as i32;
             if let Some(state) = state_from_hwnd(hwnd) {
-                state.mouse_inside_overlay = true;
-                state.touch_activity();
+                // 首次进入 Overlay
+                if state.input_context == InputContext::Game {
+                    state.input_context = InputContext::Overlay;
+                    state.touch_activity();
+                }
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
                 let new_hover = state
@@ -3971,11 +3984,13 @@ unsafe extern "system" fn wnd_proc(
         WM_MOUSEWHEEL => {
             let delta = ((wparam >> 16) as i16) as i32;
             if let Some(state) = state_from_hwnd(hwnd) {
-                state.touch_activity();
-                if delta > 0 {
-                    state.page_prev();
-                } else {
-                    state.page_next();
+                if state.input_context == InputContext::Overlay {
+                    state.touch_activity();
+                    if delta > 0 {
+                        state.page_prev();
+                    } else {
+                        state.page_next();
+                    }
                 }
             }
             0
@@ -4012,7 +4027,11 @@ unsafe extern "system" fn wnd_proc(
             }
         }
         WM_CLOSE => {
-            ShowWindow(hwnd, SW_HIDE);
+            if let Some(state) = state_from_hwnd(hwnd) {
+                state.close_panel();
+            } else {
+                ShowWindow(hwnd, SW_HIDE);
+            }
             0
         }
         WM_DESTROY => {
@@ -4776,7 +4795,7 @@ impl UiState {
             track_mouse: true,
             last_query_id: 0,
             show_mode: OverlayShowMode::Passive,
-            mouse_inside_overlay: false,
+            input_context: InputContext::Game,
         }
     }
 }
@@ -5580,5 +5599,26 @@ mod tests {
         } else {
             total.div_ceil(page_size)
         }
+    }
+
+    #[test]
+    fn input_context_transitions() {
+        // Game → Overlay
+        assert_ne!(InputContext::Game, InputContext::Overlay);
+        // 状态对比
+        assert!(matches!(InputContext::Game, InputContext::Game));
+        assert!(matches!(InputContext::Overlay, InputContext::Overlay));
+    }
+
+    #[test]
+    fn overlay_context_allows_interaction() {
+        let ctx = InputContext::Overlay;
+        assert!(ctx == InputContext::Overlay);
+    }
+
+    #[test]
+    fn game_context_blocks_overlay_keys() {
+        let ctx = InputContext::Game;
+        assert!(ctx != InputContext::Overlay);
     }
 }
